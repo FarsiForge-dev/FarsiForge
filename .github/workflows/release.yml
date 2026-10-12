@@ -2,36 +2,122 @@ name: Build and Release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
   build:
+    name: Build Windows Release
     runs-on: windows-latest
     steps:
-      - name: Checkout code
+      - name: Checkout FarsiForge
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '>=1.21'
+          go-version: '>=1.22'
+          check-latest: true
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
 
-      - name: Install Wails
+      - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
 
-      - name: Build Wails app
-        run: wails build -platform windows/amd64
+      - name: Install Frontend Dependencies
+        shell: pwsh
+        run: |
+          cd frontend
+          npm ci --legacy-peer-deps
+          cd ..
 
-      - name: Upload to Release
+      - name: Build Wails Desktop Application
+        shell: pwsh
+        run: |
+          wails build -platform windows/amd64 -s -clean
+          if (-not (Test-Path "build/bin/FarsiForge.exe")) {
+            throw "FarsiForge.exe build failed: binary not found in build/bin/"
+          }
+
+      - name: Build farsiforge-cli
+        shell: pwsh
+        run: |
+          go build -ldflags="-s -w" -o build/bin/farsiforge-cli.exe ./cmd/farsiforge-cli
+
+      - name: Build C# Patcher (GUI & CLI)
+        shell: pwsh
+        run: |
+          pwsh -File patcher/build.ps1 -NoCopy
+          New-Item -ItemType Directory -Force -Path build/bin/Tools/patcher | Out-Null
+          Copy-Item patcher/bin/FarsiForgePatcher.exe build/bin/Tools/patcher/ -Force
+          Copy-Item patcher/bin/FarsiForgePatcherCli.exe build/bin/Tools/patcher/ -Force
+
+      - name: Clone and Build FarsiForgeTools (fftools)
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/FarsiForge-dev/FarsiForgeTools.git ../FarsiForgeTools
+          New-Item -ItemType Directory -Force -Path build/bin/Tools/fftools | Out-Null
+          Push-Location ../FarsiForgeTools
+          go build -ldflags="-s -w" -o ../FarsiForge/build/bin/Tools/fftools/fftools.exe ./cmd/fftools
+          Pop-Location
+          Copy-Item build/bin/farsiforge-cli.exe build/bin/Tools/fftools/farsiforge-cli.exe -Force
+
+      - name: Fetch Helper Engine Tools (repak, retoc, CodeWalker)
+        shell: pwsh
+        run: |
+          # 1. repak (Unreal Engine .pak tool from FarsiForge-dev)
+          New-Item -ItemType Directory -Force -Path build/bin/Tools/repak | Out-Null
+          Invoke-WebRequest -Uri "https://github.com/FarsiForge-dev/repak/releases/download/v0.2.3/repak.exe" -OutFile "build/bin/Tools/repak/repak.exe"
+
+          # 2. retoc (Unreal Engine 5 IoStore .utoc/.ucas tool from FarsiForge-dev)
+          New-Item -ItemType Directory -Force -Path build/bin/Tools/retoc | Out-Null
+          Invoke-WebRequest -Uri "https://github.com/FarsiForge-dev/retoc/releases/download/v0.1.5/retoc.exe" -OutFile "build/bin/Tools/retoc/retoc.exe"
+
+          # 3. CodeWalker magic.dat (GTA V NG key material from FarsiForge-dev)
+          New-Item -ItemType Directory -Force -Path build/bin/Tools/CodeWalker | Out-Null
+          if (Test-Path "Tools/CodeWalker/magic.dat") {
+            Copy-Item "Tools/CodeWalker/magic.dat" build/bin/Tools/CodeWalker/magic.dat -Force
+          } else {
+            Invoke-WebRequest -Uri "https://github.com/FarsiForge-dev/CodeWalker/releases/download/v1.0.0/magic.dat" -OutFile "build/bin/Tools/CodeWalker/magic.dat"
+          }
+
+      - name: Package Portable Distribution Bundle
+        shell: pwsh
+        run: |
+          $distName = "FarsiForge-windows-amd64"
+          $zipPath = "build/$distName.zip"
+          Compress-Archive -Path "build/bin/*" -DestinationPath $zipPath -Force
+          Write-Host "Created bundle: $zipPath"
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: FarsiForge-windows-amd64
+          path: |
+            build/bin/FarsiForge.exe
+            build/bin/farsiforge-cli.exe
+            build/FarsiForge-windows-amd64.zip
+          retention-days: 14
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: build/bin/FarsiForge.exe
+          files: |
+            build/bin/FarsiForge.exe
+            build/bin/farsiforge-cli.exe
+            build/FarsiForge-windows-amd64.zip
+          generate_release_notes: true

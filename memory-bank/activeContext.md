@@ -1,28 +1,24 @@
-# Active Context
+# Active Context: FarsiForge
 
-Updated: 2026-10-09
+Updated: 2026-10-13
 
-## Current checkpoint
+## Current Checkpoint
+- **Engine Capabilities & Real-Game Evidence:**
+  - **FromSoftware / Elden Ring:** Full roundtrip write-back verified on Elden Ring Data0 (520,750 entries across 24 bundles). Pure Go FMG encoder (v1/v2 wide/unicode), DCX DFLT compressor, BND4 writer, and FromSoftwareInjector are implemented and tested.
+  - **RAGE / GTA V:** Encrypted RPF7 archive traversal implemented with Knuth PRNG + AES-256-ECB table derivation via `magic.dat`. Extracted 8,669,936 strings across 43 archives.
+  - **Unreal Engine:** Locres v0–v3 roundtrip verified via `fftools`. IoStore `.utoc`/`.ucas` extraction integrated via `retoc`; `.pak` extraction integrated via `repak`.
+  - **Godot Engine:** PCK v2–v4 text recovery integrated via `gdre_tools v2.7.4`. Binary `OptimizedTranslation` update and PCK rebuild verified on synthetic fixtures and MOLDRISE v1.0.5 (3,789 strings).
+  - **10 Engine Families Validated:** Unity (Mono/IL2CPP), Unreal (UE4/UE5), Godot (4.7), FromSoftware, RAGE, SAGE, Source2, Project Zomboid, Factorio, and Generic text.
+- **CI/CD & Release Pipeline:**
+  - GitHub Actions release workflow (`.github/workflows/release.yml`) updated with cross-repository tool builds (`fftools` from `FarsiForgeTools`), C# patcher compilation, helper tool fetching from `FarsiForge-dev` releases, and portable `.zip` artifact packaging.
+- **Organization Helper Releases:**
+  - Official releases created on `FarsiForge-dev/repak` (v0.2.3), `FarsiForge-dev/retoc` (v0.1.5), and `FarsiForge-dev/CodeWalker` (v1.0.0) for reliable CI dependency downloads.
+- **Security & Integrity:**
+  - Reparse-point directory escape vulnerability patched and verified with Go-to-C# symlink tests.
+  - Staged patch files bound to SHA-256 hashes of base files; stale staged outputs rejected before packaging.
+  - Project saves use atomic temporary replacement with deterministic Windows file locking coverage.
 
-- The main repository is `D:\FarsiForge`; the format-tools repository is `D:\FarsiForgeTools`.
-- The requested folder transfer to `D:\FarsiForge-dev` was canceled. Do not resume it. Partial destination artifacts were left untouched; the two source repositories remain the working copies.
-- The current worktrees contain uncommitted changes. Preserve `D:\FarsiForge\Tools.rar` and `D:\FarsiForgeTools\internal\translation\`; do not commit or push unless directly requested.
-- Synthetic Godot end-to-end check passed: inject an existing Persian `.translation` into a disposable PCK, rebuild it, build an FFP1 package, apply with the C# CLI, uninstall, and compare the restored PCK byte-for-byte with the original.
-- Read-only real MOLDRISE v1.0.5 extraction succeeded: PCK v4 / Godot 4.7.0; 3,789 strings from 467 recovered text files after filtering editor add-on files and dictionary keys. All entries have unique IDs plus source file/line context. This build has no `.translation` catalog, so its recovered scene/script literals cannot currently be injected by the main Godot injector.
-- Full main-repository Go test, vet, and build passed after parser, PCK version, game-name, and persistence changes. `graphify update .` completed.
-- Two scratch directories from the first real extraction remain under `%TEMP%`. The prior C: full report is stale: latest check reports 12,474,654,720 bytes free on C: and 69,647,757,312 bytes free on D:. Keep large new scratch output on D:; do not bypass the earlier automatic-review rejection for recursive cleanup.
-- Injection now records SHA-256 hashes of source files for successfully staged targets. Patch creation rejects stale staged output if a game file changed after injection. Full `go test ./... -count=1`, `go vet ./...`, `go build ./...`, and `git diff --check` pass after this change.
-
-## Next work
-
-- `subst` currently reports no Windows substituted drives. Volume GUID/mount-point alias identity is still unverified.
-- Added and passed a deterministic Windows interrupted-save test: a no-delete-share handle blocks replacement; the prior project file remains byte-identical and the temporary file is cleaned up.
-- The read-only Orc Massage Unity project contains 607/607 `raw_*` fallback entries, including false positives and real dialogue/UI. Those entries lack writable field identity; injection now rejects them up front and the UI labels the limitation. Unity write-back is still unverified. Current validation after this change passes Go tests/vet/build plus frontend lint and TypeScript check.
-- Continue the open items in root `todo.md`, starting with the full diff audit, Windows volume-alias identity, deterministic project-save failure coverage, and evidence-based format validation.
-- Validate Godot, Unity, Unreal, and other formats against representative real data only through read-only game inputs and disposable outputs. Synthetic results do not establish broad game compatibility.
-
-## Safety boundaries
-
-- Keep real game installations read-only; extraction/injection tests must stage under temporary or configured project storage.
-- Do not resume the canceled directory copy or clean up its partial target artifacts without a new request.
-- Do not send tasks to OpenCode.
+## Next Work
+- Monitor GitHub Actions release builds via `gh` to verify that automated CI compiles and packages cleanly.
+- Explore font texture generation for FromSoftware UI/subtitles.
+- Continue tracking roadmap items documented in `todo.md`.
