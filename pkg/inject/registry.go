@@ -38,7 +38,22 @@ func (r *Registry) GetInjector(engine string) (core.IInjector, error) {
 	if inj, ok := r.injectors[engine]; ok {
 		return inj, nil
 	}
-	return nil, fmt.Errorf("no injector available for engine: %s", engine)
+
+	// Map generic/custom fallback
+	if engine == "custom" {
+		if inj, ok := r.injectors["generic"]; ok {
+			return inj, nil
+		}
+	}
+
+	switch engine {
+	case "sage", "goldsrc", "source2", "factorio", "zomboid", "rage":
+		return nil, fmt.Errorf("engine %q is supported for text extraction, but translation injection/write-back is not currently supported (extract-only)", engine)
+	case "ue3", "source":
+		return nil, fmt.Errorf("engine %q is detection-only; extraction and injection are not supported", engine)
+	default:
+		return nil, fmt.Errorf("no injector available for engine: %s", engine)
+	}
 }
 
 // DefaultRegistry creates and returns a registry populated with all
@@ -50,6 +65,7 @@ func DefaultRegistry() *Registry {
 	r.Register(&UnrealInjector{})
 	r.Register(&GodotInjector{})
 	r.Register(&GenericInjector{})
+	r.Register(&FromSoftwareInjector{})
 
 	return r
 }

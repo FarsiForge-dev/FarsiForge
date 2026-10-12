@@ -21,13 +21,13 @@ type StandardValidator struct {
 func New() *StandardValidator {
 	return &StandardValidator{
 		Placeholders: []*regexp.Regexp{
-			regexp.MustCompile(`{[a-zA-Z0-9_]+}`),           // {player}, {0}
-			regexp.MustCompile(`%[dsfpxX]`),                 // printf style
-			regexp.MustCompile(`\n`),                        // newlines
-			regexp.MustCompile(`\r`),                        // carriage returns
-			regexp.MustCompile(`<[^>]+>`),                   // XML/HTML tags (Unity Rich Text)
-			regexp.MustCompile(`\[[^\]]+\]`),                // BBCode tags
-			regexp.MustCompile(`\\[a-z]`),                   // Escapes like \n, \t
+			regexp.MustCompile(`{[a-zA-Z0-9_]+}`), // {player}, {0}
+			regexp.MustCompile(`%[dsfpxX]`),       // printf style
+			regexp.MustCompile(`\n`),              // newlines
+			regexp.MustCompile(`\r`),              // carriage returns
+			regexp.MustCompile(`<[^>]+>`),         // XML/HTML tags (Unity Rich Text)
+			regexp.MustCompile(`\[[^\]]+\]`),      // BBCode tags
+			regexp.MustCompile(`\\[a-z]`),         // Escapes like \n, \t
 		},
 	}
 }
@@ -49,7 +49,7 @@ func (v *StandardValidator) Validate(entries []core.StringEntry) []core.Validati
 		for _, pattern := range v.Placeholders {
 			srcMatches := extractMatches(entry.Source, pattern)
 			trMatches := extractMatches(entry.Translation, pattern)
-			
+
 			if !compareMatches(srcMatches, trMatches) {
 				errs = append(errs, core.ValidationError{
 					EntryID:  entry.ID,
@@ -105,7 +105,7 @@ func fmtMatches(src, tr map[string]int) string {
 	if len(src) == 0 {
 		parts = append(parts, "none")
 	}
-	
+
 	parts = append(parts, "| Translated:")
 	for k, c := range tr {
 		parts = append(parts, k+"(x"+string(rune(c+'0'))+")")
@@ -113,6 +113,6 @@ func fmtMatches(src, tr map[string]int) string {
 	if len(tr) == 0 {
 		parts = append(parts, "none")
 	}
-	
+
 	return strings.Join(parts, " ")
 }

@@ -86,3 +86,69 @@ func DecompressDCXWithOodle(data []byte, dllPath string) ([]byte, error) {
 	}
 	return decompressOodle(data[start:start+int(compressedSize)], int(size), dllPath)
 }
+
+// CompressDCXDFLT wraps raw data into a standard DCX DFLT (zlib-compressed) container,
+// matching the format expected by FromSoftware games (DS1, DS2, DS3, Sekiro, Elden Ring).
+func CompressDCXDFLT(data []byte) ([]byte, error) {
+	var compressed bytes.Buffer
+	zw, err := zlib.NewWriterLevel(&compressed, zlib.BestCompression)
+	if err != nil {
+		return nil, fmt.Errorf("create zlib writer: %w", err)
+	}
+	if _, err := zw.Write(data); err != nil {
+		return nil, fmt.Errorf("write zlib data: %w", err)
+	}
+	if err := zw.Close(); err != nil {
+		return nil, fmt.Errorf("close zlib writer: %w", err)
+	}
+	cmpBytes := compressed.Bytes()
+
+	var buf bytes.Buffer
+	// DCX header (24 bytes)
+	buf.WriteString("DCX\x00")
+	var u32 [4]byte
+	binary.BigEndian.PutUint32(u32[:], 0x10000) // Unk04
+	buf.Write(u32[:])
+	binary.BigEndian.PutUint32(u32[:], 0x18) // 0x18
+	buf.Write(u32[:])
+	binary.BigEndian.PutUint32(u32[:], 0x24) // 0x24
+	buf.Write(u32[:])
+	binary.BigEndian.PutUint32(u32[:], 0x24) // Unk10
+	buf.Write(u32[:])
+	binary.BigEndian.PutUint32(u32[:], 0x2C) // Unk14
+	buf.Write(u32[:])
+
+	// DCS header (12 bytes)
+	buf.WriteString("DCS\x00")
+	binary.BigEndian.PutUint32(u32[:], uint32(len(data)))
+	buf.Write(u32[:])
+	binary.BigEndian.PutUint32(u32[:], uint32(len(cmpBytes)))
+	buf.Write(u32[:])
+
+	// DCP header (32 bytes)
+	buf.WriteString("DCP\x00")
+	buf.WriteString("DFLT")
+	binary.BigEndian.PutUint32(u32[:], 0x20)
+	buf.Write(u32[:])
+	buf.WriteByte(9) // compression level
+	buf.Write([]byte{0, 0, 0})
+	binary.BigEndian.PutUint32(u32[:], 0)
+	buf.Write(u32[:])
+	buf.WriteByte(0)
+	buf.Write([]byte{0, 0, 0})
+	binary.BigEndian.PutUint32(u32[:], 0)
+	buf.Write(u32[:])
+	binary.BigEndian.PutUint32(u32[:], 0x00010100)
+	buf.Write(u32[:])
+
+	// DCA header (8 bytes)
+	buf.WriteString("DCA\x00")
+	binary.BigEndian.PutUint32(u32[:], 8)
+	buf.Write(u32[:])
+
+	// Compressed payload
+	buf.Write(cmpBytes)
+
+	return buf.Bytes(), nil
+}
+

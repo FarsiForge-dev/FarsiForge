@@ -44,6 +44,9 @@ export default function FarsiForgeDashboard() {
     files: "---"
   };
 
+  const isDetectionOnly = gameInfo ? ["ue3", "source"].includes(gameInfo.engine.toLowerCase()) : false;
+  const isExtractOnly = gameInfo ? ["sage", "goldsrc", "source2", "factorio", "zomboid", "rage"].includes(gameInfo.engine.toLowerCase()) : false;
+
   // Filtered entry list for the translate step: case-insensitive search
   // across id/source/translation/file/notes plus a status filter ("qa"
   // matches entries carrying QA notes). Original indices are preserved so
@@ -262,17 +265,22 @@ export default function FarsiForgeDashboard() {
                     <div className="space-y-2">
                       <h2 className="text-2xl font-bold text-white">استخراج دیتابیس متن‌ها</h2>
                       <p className="text-zinc-400 max-w-md mx-auto">موتور {engineInfo.engine} با موفقیت شناسایی شد. اکنون فایل‌های متنی و دارایی‌ها (Assets) را استخراج می‌کنیم.</p>
+                      {isDetectionOnly && (
+                        <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-amber-300 text-sm max-w-md mx-auto">
+                          ⚠ موتور {engineInfo.engine} در وضعیت فقط-شناسایی (Detection-Only) است؛ ماژول استخراج اختصاصی برای آن در دسترس نیست.
+                        </div>
+                      )}
                     </div>
                     
                     <div className="w-full max-w-md flex flex-col gap-4">
                       {isProcessing ? (
                         <div className="space-y-2 w-full">
                           <Progress value={progress} className="h-2 bg-zinc-800" />
-                          <p className="text-xs text-zinc-500 text-center animate-pulse">در حال استخراج (resources.assets) ...</p>
+                          <p className="text-xs text-zinc-500 text-center animate-pulse">در حال استخراج متون و دارایی‌های بازی...</p>
                         </div>
                       ) : (
-                        <Button onClick={() => handleNextStep("translate")} size="lg" className="w-full text-lg h-14 bg-purple-600 hover:bg-purple-700 shadow-[0_0_20px_rgba(168,85,247,0.3)] transition-all">
-                          شروع استخراج
+                        <Button onClick={() => handleNextStep("translate")} disabled={isDetectionOnly} size="lg" className="w-full text-lg h-14 bg-purple-600 hover:bg-purple-700 shadow-[0_0_20px_rgba(168,85,247,0.3)] transition-all">
+                          {isDetectionOnly ? "استخراج پشتیبانی نمی‌شود" : "شروع استخراج"}
                         </Button>
                       )}
                     </div>
@@ -340,6 +348,11 @@ export default function FarsiForgeDashboard() {
                                 رشتهٔ سریال‌شده با offset دقیق؛ نام فیلد در دسترس نیست
                               </p>
                             )}
+                            {(item.file?.endsWith(".uexp") || item.context?.includes(".uexp")) && (
+                              <p className="text-xs text-amber-400" title="این متن در دارایی کامپایل‌شده بلوپرینت/ویجت هاردکد شده است و جدول locres ندارد؛ تزریق باینری دارایی‌های کامپایل‌شده uexp پشتیبانی نمی‌شود.">
+                                متن دارایی کامپایل‌شده (.uexp)؛ فاقد جدول locres (فقط‌خواندنی)
+                              </p>
+                            )}
                             <div className="text-left font-mono text-sm text-zinc-400" dir="ltr">{item.source}</div>
                             {item.notes && (
                               <div className="text-xs text-amber-400 truncate" dir="ltr" title={item.notes}>⚠ {item.notes}</div>
@@ -358,9 +371,14 @@ export default function FarsiForgeDashboard() {
                       ))}
                     </div>
                     
-                    <div className="flex justify-end pt-2">
-                      <Button onClick={() => handleNextStep("inject")} size="lg" className="bg-blue-600 hover:bg-blue-700">
-                        آماده‌سازی برای تزریق
+                    <div className="flex justify-between items-center pt-2">
+                      {isExtractOnly ? (
+                        <span className="text-xs text-amber-400">
+                          ℹ موتور {engineInfo.engine} در وضعیت فقط-استخراج (Extract-Only) است؛ تزریق خودکار غیرفعال است.
+                        </span>
+                      ) : <span />}
+                      <Button onClick={() => handleNextStep("inject")} disabled={isExtractOnly} size="lg" className="bg-blue-600 hover:bg-blue-700">
+                        {isExtractOnly ? "تزریق در دسترس نیست" : "آماده‌سازی برای تزریق"}
                       </Button>
                     </div>
                   </motion.div>

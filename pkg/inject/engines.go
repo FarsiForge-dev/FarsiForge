@@ -132,6 +132,19 @@ func fftoolsPath(reg core.ToolRegistry) string {
 	return reg.GetPath("fftools")
 }
 
+func repakPath(reg core.ToolRegistry) string {
+	if tr := toolsRegistry(reg); tr != nil {
+		return tr.Repak
+	}
+	return reg.GetPath("repak")
+}
+
+func sanitizePakName(p string) string {
+	p = strings.ReplaceAll(p, "/", "_")
+	p = strings.ReplaceAll(p, "\\", "_")
+	return p
+}
+
 // writeCSV writes rows (each a []string) to path as a CSV file.
 func writeCSV(path string, rows [][]string) error {
 	f, err := os.Create(path)
@@ -170,7 +183,8 @@ func (i *UnityInjector) Inject(ctx context.Context, info *core.GameInfo, proj *c
 	}
 	var rawCandidates []string
 	for _, entry := range translatedEntries {
-		if strings.HasPrefix(entry.Path, "raw_") && strings.EqualFold(entry.Context, "MonoBehaviour") {
+		if (strings.HasPrefix(entry.Path, "raw_") || strings.HasPrefix(entry.ID, "raw_") || strings.Contains(entry.ID, "_raw_")) &&
+			!strings.HasPrefix(entry.Path, "rawstr_") && !strings.Contains(entry.ID, "rawstr_") {
 			rawCandidates = append(rawCandidates, entry.ID)
 		}
 	}
@@ -184,6 +198,11 @@ func (i *UnityInjector) Inject(ctx context.Context, info *core.GameInfo, proj *c
 	}
 	workDir, err := proj.EnsureWorkingDir()
 	if err != nil {
+		return res, err
+	}
+	outDir := filepath.Join(workDir, "out")
+	_ = os.RemoveAll(outDir)
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return res, err
 	}
 
@@ -268,6 +287,9 @@ func (i *UnrealInjector) Inject(ctx context.Context, info *core.GameInfo, proj *
 	}
 
 	for file, entries := range byFile {
+		if strings.EqualFold(filepath.Ext(file), ".uexp") {
+			return res, fmt.Errorf("file %q is a compiled Unreal asset (.uexp); translation write-back is only supported for .locres localization tables. Hardcoded text in compiled blueprints/widgets is read-only", file)
+		}
 		relFile, err := cleanGameRelativePath(file)
 		if err != nil {
 			return res, fmt.Errorf("invalid Unreal localization path %q: %w", file, err)
@@ -296,7 +318,27 @@ func (i *UnrealInjector) Inject(ctx context.Context, info *core.GameInfo, proj *
 			return res, err
 		}
 		if !scanner.FileExists(locresPath) {
-			return res, fmt.Errorf("locres not found: %s", file)
+			// Check if it exists inside one of the game's .pak archives.
+			repak := repakPath(reg)
+			if repak != "" {
+				pakFiles := scanner.WalkDir(info.GameRoot, 10, func(p string) bool {
+					return strings.EqualFold(filepath.Ext(p), ".pak")
+				})
+				for _, pak := range pakFiles {
+					data, err := tools.RunSilent(ctx, workDir, repak, "get", pak, relFile)
+					if err == nil && len(data) > 0 {
+						tempLocres := filepath.Join(workDir, "locres_from_pak", sanitizePakName(relFile))
+						_ = os.MkdirAll(filepath.Dir(tempLocres), 0o755)
+						if writeErr := os.WriteFile(tempLocres, []byte(data), 0o644); writeErr == nil {
+							locresPath = tempLocres
+							break
+						}
+					}
+				}
+			}
+		}
+		if !scanner.FileExists(locresPath) {
+			return res, fmt.Errorf("locres not found on disk or inside .pak archives: %s", file)
 		}
 
 		outLocres, err := stagedPath(workDir, "out", relFile)
@@ -557,13 +599,15 @@ func stageUnityOutputs(workDir string, proj *core.Project, modified []string) ([
 		if err != nil {
 			return nil, err
 		}
-		if !fileExists(target) {
+		if !fileExists(source) {
 			return nil, fmt.Errorf("Unity staged output is missing: %s", source)
 		}
+		if seen[rel] {
+			return nil, fmt.Errorf("multiple Unity outputs map to %s", rel)
+		}
+		seen[rel] = true
 		if !strings.EqualFold(filepath.Clean(source), filepath.Clean(target)) {
-			if fileExists(target) {
-				return nil, fmt.Errorf("multiple Unity outputs map to %s", rel)
-			}
+			_ = os.Remove(target)
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return nil, err
 			}
@@ -571,10 +615,7 @@ func stageUnityOutputs(workDir string, proj *core.Project, modified []string) ([
 				return nil, fmt.Errorf("move Unity output into game-relative staging path: %w", err)
 			}
 		}
-		if !seen[rel] {
-			seen[rel] = true
-			result = append(result, filepath.ToSlash(rel))
-		}
+		result = append(result, filepath.ToSlash(rel))
 	}
 	sort.Strings(result)
 	return result, nil

@@ -280,8 +280,16 @@ func (e *UnrealExtractor) Extract(ctx context.Context, info *core.GameInfo, proj
 	})
 	if len(pakFiles) > 0 {
 		e.extractFromPak(ctx, info, proj, reg, workDir, pakFiles)
-	} else if !exportedAny {
-		log.Warn("No .locres files found. Ensure .pak files are unpacked first.")
+	}
+
+	// 4. UE5 IoStore containers (.utoc / .ucas) via retoc
+	utocFiles := scanner.WalkDir(info.GameRoot, 6, func(p string) bool {
+		return strings.ToLower(filepath.Ext(p)) == ".utoc"
+	})
+	if len(utocFiles) > 0 {
+		e.extractFromUtoc(ctx, info, proj, reg, workDir, utocFiles)
+	} else if len(pakFiles) == 0 && !exportedAny {
+		log.Warn("No .locres, .pak, or .utoc files found. Ensure game archives are accessible.")
 	}
 
 	return nil
@@ -451,15 +459,105 @@ func (e *UnrealExtractor) extractFromPak(ctx context.Context, info *core.GameInf
 			}
 			relPath, _ := filepath.Rel(unpackDir, uexp)
 			texts := extractUexpStrings(data)
+			seenInFile := make(map[string]bool, len(texts))
+			addedCount := 0
 			for _, s := range texts {
+				if seenInFile[s] {
+					continue
+				}
+				seenInFile[s] = true
 				proj.AddEntry(core.StringEntry{
 					Source:  s,
 					File:    filepath.ToSlash(relPath),
-					Context: "Unreal",
+					Context: "Unreal asset text (.uexp, read-only)",
 				})
+				addedCount++
 			}
-			if len(texts) > 0 {
+			if addedCount > 0 {
 				proj.ExtractedFiles = append(proj.ExtractedFiles, filepath.ToSlash(relPath))
+			}
+		}
+	}
+}
+
+// retocPath returns the retoc.exe path (UE5 IoStore .utoc/.ucas unpacker), or "" if absent.
+func retocPath(reg core.ToolRegistry) string {
+	if tr := toolsRegistry(reg); tr != nil {
+		if tr.Retoc != "" {
+			return tr.Retoc
+		}
+		for _, p := range []string{
+			filepath.Join(tr.RootDir, "retoc", "retoc.exe"),
+			filepath.Join(tr.RootDir, "retoc.exe"),
+		} {
+			if scanner.FileExists(p) {
+				return p
+			}
+		}
+	}
+	return reg.GetPath("retoc")
+}
+
+// extractFromUtoc extracts .locres and text assets from UE5 IoStore containers (.utoc/.ucas).
+func (e *UnrealExtractor) extractFromUtoc(ctx context.Context, info *core.GameInfo, proj *core.Project, reg core.ToolRegistry, workDir string, utocFiles []string) {
+	retoc := retocPath(reg)
+	if retoc == "" {
+		log.Warn("retoc.exe not found (required to read UE5 IoStore .utoc containers)")
+		return
+	}
+
+	for _, utoc := range utocFiles {
+		cleanBase := strings.TrimSuffix(filepath.Base(utoc), filepath.Ext(utoc))
+		unpackDir := filepath.Join(workDir, "utoc_"+cleanBase)
+		if err := os.MkdirAll(unpackDir, 0o755); err != nil {
+			log.Warn("Failed to create utoc unpack directory", "error", err)
+			continue
+		}
+
+		out, err := tools.RunSilent(ctx, workDir, retoc, "unpack", utoc, unpackDir)
+		if err != nil {
+			log.Warn("Failed to unpack utoc", "file", utoc, "error", err, "output", firstLines(out, 5))
+			continue
+		}
+
+		// 1) Find extracted .locres files
+		locresList := scanner.WalkDir(unpackDir, 10, func(p string) bool {
+			return strings.ToLower(filepath.Ext(p)) == ".locres"
+		})
+		for _, lp := range locresList {
+			relInner, _ := filepath.Rel(unpackDir, lp)
+			relDisplay := filepath.ToSlash(filepath.Join(filepath.Base(utoc), relInner))
+			e.exportLocresFile(ctx, proj, reg, workDir, lp, relDisplay)
+		}
+
+		// 2) Find extracted .uexp files
+		uexpList := scanner.WalkDir(unpackDir, 10, func(p string) bool {
+			return strings.ToLower(filepath.Ext(p)) == ".uexp" && isUETextPath(p)
+		})
+		for _, uexp := range uexpList {
+			data, err := os.ReadFile(uexp)
+			if err != nil {
+				continue
+			}
+			relPath, _ := filepath.Rel(unpackDir, uexp)
+			relDisplay := filepath.ToSlash(filepath.Join(filepath.Base(utoc), relPath))
+			texts := extractUexpStrings(data)
+			seenInFile := make(map[string]bool, len(texts))
+			addedCount := 0
+			for _, s := range texts {
+				if seenInFile[s] {
+					continue
+				}
+				seenInFile[s] = true
+				proj.AddEntry(core.StringEntry{
+					Source:  s,
+					File:    relDisplay,
+					Context: "Unreal asset text (.uexp, read-only)",
+				})
+				addedCount++
+			}
+			if addedCount > 0 {
+				proj.ExtractedFiles = append(proj.ExtractedFiles, relDisplay)
 			}
 		}
 	}

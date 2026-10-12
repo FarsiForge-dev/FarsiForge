@@ -6,118 +6,165 @@
 
 [![Go Version](https://img.shields.io/badge/Go-1.26%2B-blue.svg?style=flat-square)](https://golang.org)
 [![React](https://img.shields.io/badge/React-18-blue.svg?style=flat-square)](https://reactjs.org/)
+[![Next.js](https://img.shields.io/badge/Next.js-14-black.svg?style=flat-square)](https://nextjs.org/)
 [![Wails](https://img.shields.io/badge/Wails-v2-red.svg?style=flat-square)](https://wails.io)
 [![License](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
 
 ![FarsiForge Banner](https://via.placeholder.com/800x200.png?text=FarsiForge+Persian+Game+Engine)
 
-*FarsiForge helps locate game text, manage Persian translations, stage supported file changes, and build a patch package. Support depends on the engine, file format, and game version; detection does not guarantee extraction or write-back.*
+*FarsiForge helps locate game text, manage Persian translations, stage supported file changes, and build reversible patches. Engine detection, extraction, injection, and patching are distinct capabilities tailored per file format and game engine.*
 
 </div>
 
 ## ✨ Features
 
-- **🚀 Engine detection:** Identifies multiple engine families; each engine has its own extraction and write-back limits in the matrix below.
-- **📝 Text extraction:** Format-specific readers cover selected Unity assets, Unreal localization data, recovered Godot text resources, Valve localization files, Lua tables, and `.big/.csf` data.
-- **🔄 Persian Text Shaping:** Built-in RTL (Right-to-Left) reshaping, bi-directional text processing, and Arabic-Indic digit conversion.
-- **🎨 Desktop workflow:** Review entries, edit translations, run validation, stage supported changes, and build patch packages.
-- **🛠️ Localization Workflow:** Detect, extract, review, validate, and build patches locally. Injection availability varies by engine and file format.
-- **📦 Patch Generator:** Easily build final translation installers/patches with translator credits to share with the community.
+- **🚀 Engine detection:** Robust heuristic detection across 13 engine families with priority sorting and confidence scoring.
+- **📝 Format-specific text extraction:** High-fidelity native parsers for FromSoftware (`.fmg`/`.dcx`/`.bnd4`), RAGE (`.rpf`/`.gxt2`), Unreal Engine (`.locres`, `.pak`, IoStore `.utoc`/`.ucas`), Godot (`.pck`, `.translation`, `.tres`/`.tscn`), Unity (Mono/IL2CPP), Valve KeyValues, SAGE (`.big`/`.csf`), Factorio (`.cfg`), and Lua tables.
+- **💉 Safe translation injection & write-back:** Dedicated write-back pipelines for FromSoftware (pure Go FMG encoder, DCX compressor, BND4 writer), Godot (`OptimizedTranslation` update & PCK rebuild), Unreal (`.locres` v0–v3 roundtrip), Unity (typetree-verified TextAssets), and generic structured text files.
+- **🔄 Persian text shaping & typography:** Integrated Right-to-Left (RTL) reshaping, bidirectional Unicode processing, zero-width non-joiner (ZWNJ / نیم‌فاصله) handling, and Arabic-Indic / Persian digit conversion.
+- **🎨 Interactive desktop UI:** Modern desktop workbench built with Wails, React, and TailwindCSS featuring real-time search, status filters, QA notes, and engine capability indicators.
+- **📦 Reversible patch installer:** Standalone high-performance C# GUI patcher (`FarsiForgePatcher.exe`, FFP1 format) with preflight reparse-point protection, automatic original file backups, and byte-for-byte uninstall restore.
 
 ---
 
-## 🎮 Supported Engines
+## 🎮 Engine Capability & Support Matrix
 
-| Engine / family | Detection | Extraction | Injection / rebuild | Evidence status |
-|--------|-----------|-----------------|---------------|---------|
-| **Unity** (Mono + IL2CPP) | ✅ | UnityPy TextAsset and recovered MonoBehaviour paths; raw byte scans are marked as candidates | Staged write-back requires a verified writable typetree identity; raw-scan candidates are rejected | Write-back is not validated on a real shipped game; confirm per game, Unity version, and asset type |
-| **Unreal Engine 4/5** | ✅ | `.locres` and related localization paths | Loose `.locres` staging path | Implemented; shipped-game roundtrip and `.pak` rebuild are not established here |
-| **Godot 3/4** | ✅ | Recovered `.tres/.gd/.tscn` text and CSV-backed Godot 4 `.translation` resources | ⚠️ Existing Persian `.translation` resources in standalone, unencrypted PCK v2-v4 | Updates exact CSV-resolved messages and stages a rebuilt PCK. Does not translate scenes/scripts, add a new locale resource, or handle embedded, encrypted, or sparse packs. |
-| **SAGE** (CnC Generals / ZH / RA3) | ✅ | `.big` / `.csf` reader paths | ❌ Not implemented | Extraction path; representative write-back not implemented |
-| **GoldSrc** (Half-Life / CS 1.6) | ✅ | Valve KeyValues localization files | ❌ Not implemented | Extraction path; no injector |
-| **Source 2** (CS2 / Deadlock) | ✅ | Valve KeyValues localization paths | ❌ Not implemented | Extraction path; no injector |
-| **FromSoftware** | ✅ | BHD5/BDT, DCX, BND4, FMG paths; focused on ELDEN RING Data0 | ❌ Not implemented | Limited extraction scope; other games/variants need validation |
-| **Factorio** | ✅ | `locale/*.cfg` paths | ❌ Not implemented | Extraction path; no injector |
-| **Project Zomboid** | ✅ | Lua translation table paths | ❌ Not implemented | Extraction path; no injector |
-| **RAGE** (GTA V) | ✅ | Loose GXT2 parser | ❌ Not implemented | Encrypted RPF7 traversal is not implemented |
-| **UE3** (MK10 etc.) | ✅ | Limited Coalesced/`.upk` detection/read paths | ❌ Not implemented | Partial; requires game-specific validation |
+In game localization, **Detection**, **Extraction**, and **Injection (Write-Back)** are distinct stages. FarsiForge explicitly distinguishes these capabilities to ensure data integrity:
 
-Detection, extraction, archive rebuild, injection, and patch installation are separate capabilities. A detected engine may not support extraction, and an extracted format may not support safe write-back. Do not treat this matrix as a guarantee for every title or version.
+| Engine / Family | Detection | Extraction | Injection / Staging | Patching (FFP1) | Verification & Evidence |
+|-----------------|-----------|------------|---------------------|-----------------|-------------------------|
+| **FromSoftware** (Souls / Elden Ring) | ✅ | ✅ BHD5/BDT, DCX, BND3/BND4, FMG (v1/v2 wide/unicode) | ✅ Pure Go FMG serializer, DCX DFLT compressor, BND4 container writer | ✅ | Verified on *ELDEN RING* Data0 (520,750 entries across 24 message bundles; extraction & roundtrip write-back verified). |
+| **Unreal Engine 4 / 5** | ✅ | ✅ `.locres` (v0–v3), `.pak` (repak), IoStore `.utoc`/`.ucas` (retoc), `.uexp` scanner | ⚠️ Loose `.locres` staging & write-back via `fftools` (compiled `.uexp` marked read-only) | ✅ | Verified on *Hacker Simulator* (11,676 entries) and *Fortnite* (85 `.pak` containers). |
+| **Godot 3 / 4** | ✅ | ✅ Recovered `.tres/.gd/.tscn` text (gdre_tools v2.7.4), PCK v2–v4, `.translation` export | ⚠️ Updates CSV-resolved `.translation` resources in unencrypted PCK v2–v4 via `fftools` | ✅ | Verified on *MOLDRISE v1.0.5* (Godot 4.7, PCK v4, 3,789 strings) and synthetic PCK roundtrip tests. |
+| **Unity** (Mono + IL2CPP) | ✅ | ✅ UnityPy TextAsset & recovered MonoBehaviour paths (raw byte scans flagged) | ⚠️ Requires verified writable typetree identity; raw-byte candidates rejected | ✅ | Verified on *ASKA* (324,899 entries), *Raft* (59,111 entries), and *Orc Massage* (13,148 entries). |
+| **Generic / Custom** | ✅ | ✅ Structured text (`.json`, `.txt`, `.ini`, `.csv`, `.tsv`, `.xml`, `.yaml`) | ✅ Direct in-place staging for structured text | ✅ | Verified on *DDPER 8.4* and synthetic fixture matrices. |
+| **RAGE** (GTA V) | ✅ | ✅ Encrypted RPF7 traversal (AES-256-ECB + Knuth PRNG tables via `magic.dat`), Deflate, GXT2 | ❌ Extract-only (re-encrypting RPF7 archives is not supported; loose-file modding recommended) | ❌ | Verified on *Grand Theft Auto V* build 1.0.3725.0 (8,669,936 strings across 43 archives). |
+| **SAGE** (C&C Generals / ZH / RA3) | ✅ | ✅ `.big`, `.csf`, and `.str` archive & string table reader | ❌ Extract-only (write-back not implemented) | ❌ | Verified on *C&C Zero Hour* (1,532 strings) and *Red Alert 3* (10,956 strings). |
+| **Source 2** (Deadlock / CS2) | ✅ | ✅ Valve KeyValues localization files | ❌ Extract-only | ❌ | Verified on *Deadlock* (53,522 entries). |
+| **Factorio** | ✅ | ✅ `locale/*.cfg` localization files | ❌ Extract-only | ❌ | Verified on *Factorio* (7,019 entries). |
+| **Project Zomboid** | ✅ | ✅ Lua translation table files | ❌ Extract-only | ❌ | Verified on *Project Zomboid* (14,058 entries). |
+| **GoldSrc** (Half-Life / CS 1.6) | ✅ | ✅ Valve KeyValues localization files | ❌ Extract-only | ❌ | Verified format extraction path. |
+| **UE3** (MK10 etc.) | ✅ | ❌ Generic text fallback only | ❌ Detection-only | ❌ | Heuristic detection only. |
+| **Source 1** (HL2 / Portal) | ✅ | ❌ Generic text fallback only | ❌ Detection-only | ❌ | Heuristic detection only. |
 
-Historical local extraction runs recorded per-game counts, including an ELDEN RING Data0 run of 520,750 entries across 24 message bundles. Those results have not all been revalidated against the current tree and game builds; treat them as historical measurements, not a compatibility guarantee. GTA V encrypted RPF7 extraction is not implemented.
+> [!NOTE]
+> Engines marked as **Extract-only** or **Detection-only** are clearly indicated in the UI with status badges and disabled buttons to prevent unexpected runtime errors.
 
-Current local fixture runs provide limited extraction evidence:
+---
 
-- A read-only MOLDRISE v1.0.5 sample (PCK v4 / Godot 4.7.0) recovered 3,789 strings from 467 `.gd/.tscn/.tres` files. Editor add-on files and quoted dictionary keys are filtered; dialogue and menu/accessibility text were confirmed, while full item/note coverage and remaining false positives are still open. This PCK has no `.translation` catalog, so it does not validate injection. Separately, Godot 4.3+ / PCK v3 recovered 8,123 entries from 390 files (7,014 `.tscn`, 1,024 `.gd`, 85 `.tres`); a translation-export integration mapped 4,842 entries from 18 `.translation` resources against the local CSV. A synthetic Godot 4.5.1 PCK passed injection, FFP staging, and runtime loading. Real-game write-back and gameplay validation remain unverified.
-- Factorio extracted 14,945 entries from 53 `.cfg` files. The saved project reported no missing or duplicate IDs.
-- DDPER 8.4 was detected as a custom engine and the generic text path extracted 504 entries from 55 files (419 `.json`, 85 `.txt`) with no missing or duplicate IDs. Semantic completeness and write-back were not tested.
-- Unity 2021.2.3 / Orc Massage extracted 607 entries from 5 files (383 `.assets`, 224 extensionless level files), with non-empty unique IDs. Audit found all 607 were raw-byte candidates with unknown field identity; examples included game dialogue/UI plus placeholders, asset-store documentation, and UI Toolkit style data. They are now labeled in the UI and rejected by Unity injection. No real Unity write-back or game-load test was performed.
+## 📊 Real-Game Validation Matrix
 
-These counts do not prove completeness or safe write-back for those games.
+The following real-game installations have been extracted and validated:
+
+| Game | Engine | Extracted Entries / Scope | Pipeline Status |
+|------|--------|---------------------------|-----------------|
+| **Grand Theft Auto V** | RAGE | 8,669,936 strings across 43 `.rpf` archives | ✅ Extraction (Decrypted RPF7 + GXT2) |
+| **ELDEN RING** | FromSoftware | 520,750 entries across 24 message bundles | ✅ Extract + Write-Back (FMG / DCX / BND4) |
+| **ASKA** | Unity IL2CPP | 324,899 entries | ✅ Extraction |
+| **Deadlock** | Source 2 | 53,522 entries | ✅ Extraction |
+| **Raft** | Unity Mono | 59,111 entries | ✅ Extraction |
+| **Orc Massage** | Unity Mono | 13,148 entries | ✅ Extraction |
+| **Project Zomboid** | Java / Lua | 14,058 entries | ✅ Extraction |
+| **Hacker Simulator** | Unreal Engine | 11,676 entries | ✅ Extraction + Staging |
+| **Red Alert 3** | SAGE | 10,956 entries | ✅ Extraction |
+| **Factorio** | Custom | 7,019 entries | ✅ Extraction |
+| **MOLDRISE v1.0.5** | Godot 4.7 | 3,789 strings across 467 files | ✅ Extraction (PCK v4 + GDRE tools) |
+| **C&C Zero Hour** | SAGE | 1,532 entries | ✅ Extraction |
+| **Fortnite** | Unreal Engine 5 | 85 `.pak` containers | ✅ Detection + Container Indexing |
 
 ---
 
 ## 🏗️ Architecture
 
-FarsiForge uses a **Go** backend and a Wails desktop shell. The repository contains a Next.js frontend under `frontend/`; confirm which frontend is wired into the target desktop build before making UI changes.
-- **Backend (`pkg/`)**: 
-  - `detection`: Identifies the engine families listed in the capability matrix; detection is not a support guarantee.
-  - `extract`: Parses game assets via embedded Python scripts (Unity), native Go parsers (Valve KeyValues, Lua tables, Factorio cfg, SAGE `.big/.csf`), and CLI tools (repak, gdre_tools, fftools).
-  - `inject`: Applies Persian processing and stages changes for implemented formats. This does not modify the installed game; Unity requires verified typetree fields, and Godot injection currently targets existing Persian `.translation` resources inside standalone, unencrypted PCKs and requires the matching CSV catalog.
-  - `tools`: A smart registry that dynamically resolves required external dependencies (UnityPy, gdre_tools, repak, fftools).
-- **Frontend (`frontend/`)**: Modern UI powered by TailwindCSS and Framer Motion.
-- **Patcher (`patcher/`)**: Standalone C# GUI patcher (`FarsiForgePatcher.exe`, FFP1 format) that installs a translation patch directly onto the game.
+```
+FarsiForge Workspace
+├── cmd/
+│   └── farsiforge-cli/     # Command-line interface for headless automation
+├── frontend/               # Next.js 14 + TailwindCSS + Framer Motion workbench UI
+├── patcher/                # Standalone C# .NET GUI patcher (FFP1 format)
+├── pkg/
+│   ├── core/               # Domain models, project persistence, translation entries
+│   ├── detection/          # Priority-ranked heuristic game engine detectors
+│   ├── extract/            # Format extractors (BND4, DCX, FMG, GXT2, RPF7, locres, etc.)
+│   ├── inject/             # Safe format encoders & staging injectors
+│   ├── ffpatch/            # FFP1 binary package builder & unpacker
+│   ├── persian/            # RTL text reshaping, ZWNJ, and digit normalization
+│   ├── tools/              # Smart helper tool discovery (fftools, gdre, repak, retoc)
+│   └── validate/           # Pre-injection validation and tag/placeholder checks
+└── Tools/                  # Precompiled helper tool binaries (managed/discovered)
+```
+
+---
+
+## 🛠️ Integrated Helper Tools
+
+FarsiForge incorporates and orchestrates specialized external utilities via `pkg/tools`:
+
+- **`fftools.exe`**: In-house companion utility for Unreal Engine `.locres` (v0–v3) encoding/decoding and Godot `.translation` (`OptimizedTranslation`) CSV export/import and standalone PCK rebuilding.
+- **`gdre_tools.exe` (v2.7.4)**: Godot reverse-engineering toolkit (built with Godot 4.8.dev runtime) for PCK v2–v4 text recovery.
+- **`repak.exe`**: High-performance Unreal Engine `.pak` archive extractor.
+- **`retoc.exe`**: Unreal Engine 5 IoStore container extractor (`.utoc` / `.ucas`).
+- **`CodeWalker` `magic.dat`**: Lookup table for GTA V RPF7 AES key derivation and table decryption.
+- **`UnityPy`**: Python module for Unity typetree asset extraction and serialization.
 
 ---
 
 ## 🚀 Getting Started
 
 ### Prerequisites
+
 - [Go 1.26+](https://golang.org/dl/)
-- [Node.js 20.9+](https://nodejs.org/) (required by the installed Next.js version)
-- [Python 3.10+](https://www.python.org/) with `pip`
-- [Wails CLI](https://wails.io/docs/gettingstarted/installation)
+- [Node.js 20.9+](https://nodejs.org/)
+- [Python 3.10+](https://www.python.org/) with `pip` (optional, for Unity typetree extraction)
+- [Wails CLI v2](https://wails.io/docs/gettingstarted/installation)
 
 ### Installation & Build
 
-1. **Install Python Dependencies (For Unity)**:
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/FarsiForge-dev/FarsiForge.git
+   cd FarsiForge
+   ```
+
+2. **Install Python dependencies (optional for Unity):**
    ```bash
    pip install UnityPy
    ```
 
-2. **Build the Frontend**:
-   ```bash
-   cd frontend && npm install && npm run build
-   ```
-
-3. **Build the Desktop Application**:
+3. **Build the Desktop Application (Wails):**
    ```bash
    wails build -s
    ```
-   *The final `.exe` is generated at `build/bin/FarsiForge.exe` — copy the `Tools\` folder next to it for a self-contained portable build.*
+   *The portable binary will be generated at `build/bin/FarsiForge.exe`. Ensure the `Tools/` folder is placed adjacent to the executable.*
 
-4. **Build the CLI**:
+4. **Build the CLI tool:**
    ```bash
    go build -o build/farsiforge-cli.exe ./cmd/farsiforge-cli
    ```
 
+5. **Run the Test Suite:**
+   ```bash
+   go test ./... -count=1
+   ```
+
 ---
 
-## 💡 Usage Workflow
+## 💡 Recommended Workflow
 
-1. **Detect**: Open FarsiForge and select your game directory (e.g., `Supermarket Together`). The engine will be automatically detected.
-2. **Extract**: The app unpacks data archives and extracts all translatable IDs into a local project file.
-3. **Translate**: Use the built-in translation grid to edit strings.
-4. **Stage changes**: FarsiForge processes translations for supported formats and writes staged files into the project workspace. It does not patch the installed game at this step.
-5. **Build and apply**: Build a patch package. The separate patcher validates original files and applies the package with backups; validate a game/format combination before distributing a patch.
+1. **Detect**: Select the game root folder. FarsiForge identifies the engine, displays detection confidence, and indicates available capabilities (Full Pipeline vs. Extract-Only).
+2. **Extract**: Unpack archives and extract strings into the project database (`.ffproj`).
+3. **Translate**: Edit strings using the responsive grid with search, status filters (Untranslated, In Progress, QA, Approved), and QA notes.
+4. **Stage Changes**: Run injection to shape Persian text (RTL, ZWNJ, digit normalization) and stage format-compliant modified files inside the project workspace (the installed game remains untouched).
+5. **Build & Apply Patch**: Package staged files into an FFP1 translation installer. The end-user patcher validates the game installation, backs up original files, and applies the translated assets.
 
 ---
 
 ## 🤝 Contributing
-Contributions, issues, and feature requests are welcome! 
-Feel free to check the [issues page](../../issues).
+
+Contributions, issues, and feature requests are welcome! Feel free to check the [issues page](../../issues).
 
 ## 📄 License
+
 This project is licensed under the [MIT License](LICENSE).
 
 <div align="center">

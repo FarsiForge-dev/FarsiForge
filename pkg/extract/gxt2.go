@@ -1,6 +1,7 @@
 package extract
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"strings"
@@ -13,9 +14,16 @@ type GXT2Entry struct {
 	Text string
 }
 
+// gxt2Magic is "GXT2" stored as Little-Endian uint32 (bytes '2', 'T', 'X', 'G').
+const gxt2Magic = 0x47585432
+
 // ParseGXT2 reads a GXT2 table without modifying the source bytes.
 func ParseGXT2(data []byte) ([]GXT2Entry, error) {
-	if len(data) < 16 || string(data[:4]) != "GXT2" {
+	if len(data) < 16 {
+		return nil, fmt.Errorf("invalid GXT2 header: data too short")
+	}
+	m := binary.LittleEndian.Uint32(data[:4])
+	if m != gxt2Magic && string(data[:4]) != "GXT2" {
 		return nil, fmt.Errorf("invalid GXT2 header")
 	}
 	n := binary.LittleEndian.Uint32(data[4:8])
@@ -23,7 +31,11 @@ func ParseGXT2(data []byte) ([]GXT2Entry, error) {
 		return nil, fmt.Errorf("GXT2 entry count %d exceeds file bounds", n)
 	}
 	end := 8 + int(n)*8
-	if end+8 > len(data) || string(data[end:end+4]) != "GXT2" {
+	if end+8 > len(data) {
+		return nil, fmt.Errorf("invalid GXT2 text section bounds")
+	}
+	mEnd := binary.LittleEndian.Uint32(data[end : end+4])
+	if mEnd != gxt2Magic && string(data[end:end+4]) != "GXT2" {
 		return nil, fmt.Errorf("invalid GXT2 text section")
 	}
 	textStart := end + 8
@@ -32,12 +44,15 @@ func ParseGXT2(data []byte) ([]GXT2Entry, error) {
 		off := 8 + i*8
 		h := binary.LittleEndian.Uint32(data[off : off+4])
 		rel := binary.LittleEndian.Uint32(data[off+4 : off+8])
-		pos := uint64(textStart) + uint64(rel)
+		pos := uint64(rel)
+		if pos < uint64(textStart) {
+			pos += uint64(textStart)
+		}
 		if pos >= uint64(len(data)) {
 			return nil, fmt.Errorf("GXT2 string %d offset out of range", i)
 		}
 		rest := data[pos:]
-		z := strings.IndexByte(string(rest), 0)
+		z := bytes.IndexByte(rest, 0)
 		if z < 0 {
 			return nil, fmt.Errorf("GXT2 string %d is not terminated", i)
 		}

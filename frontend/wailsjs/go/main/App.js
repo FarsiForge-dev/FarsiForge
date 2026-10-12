@@ -46,6 +46,10 @@ export function SaveTranslations(arg1, arg2) {
   return window['go']['main']['App']['SaveTranslations'](arg1, arg2);
 }
 
+export function SearchEntries(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SearchEntries'](arg1, arg2, arg3);
+}
+
 export function SelectDirectory() {
   return window['go']['main']['App']['SelectDirectory']();
 }

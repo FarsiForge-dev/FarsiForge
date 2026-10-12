@@ -61,6 +61,7 @@ export namespace core {
 	    source: string;
 	    translation?: string;
 	    file: string;
+	    container?: string;
 	    path: string;
 	    context?: string;
 	    speaker?: string;
@@ -79,6 +80,7 @@ export namespace core {
 	        this.source = source["source"];
 	        this.translation = source["translation"];
 	        this.file = source["file"];
+	        this.container = source["container"];
 	        this.path = source["path"];
 	        this.context = source["context"];
 	        this.speaker = source["speaker"];
@@ -93,6 +95,7 @@ export namespace core {
 	    game_name: string;
 	    game_root: string;
 	    engine: string;
+	    game_exe?: string;
 	    backend?: string;
 	    version?: string;
 	    // Go type: time
@@ -106,6 +109,7 @@ export namespace core {
 	    font_path?: string;
 	    extracted_files?: string[];
 	    modified_files?: string[];
+	    modified_file_hashes?: Record<string, string>;
 	
 	    static createFrom(source: any = {}) {
 	        return new Project(source);
@@ -117,6 +121,7 @@ export namespace core {
 	        this.game_name = source["game_name"];
 	        this.game_root = source["game_root"];
 	        this.engine = source["engine"];
+	        this.game_exe = source["game_exe"];
 	        this.backend = source["backend"];
 	        this.version = source["version"];
 	        this.created_at = this.convertValues(source["created_at"], null);
@@ -128,6 +133,7 @@ export namespace core {
 	        this.font_path = source["font_path"];
 	        this.extracted_files = source["extracted_files"];
 	        this.modified_files = source["modified_files"];
+	        this.modified_file_hashes = source["modified_file_hashes"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

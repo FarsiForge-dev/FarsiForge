@@ -33,14 +33,14 @@ func main() {
 			app,
 		},
 		Windows: &windows.Options{
-			WebviewIsTransparent:              true,
-			WindowIsTranslucent:               true,
-			DisableWindowIcon:                 false,
-			Theme:                             windows.Dark,
+			WebviewIsTransparent: true,
+			WindowIsTranslucent:  true,
+			DisableWindowIcon:    false,
+			Theme:                windows.Dark,
 			CustomTheme: &windows.ThemeSettings{
-				DarkModeTitleBar:   windows.RGB(9, 9, 11),
-				DarkModeTitleText:  windows.RGB(255, 255, 255),
-				DarkModeBorder:     windows.RGB(39, 39, 42),
+				DarkModeTitleBar:  windows.RGB(9, 9, 11),
+				DarkModeTitleText: windows.RGB(255, 255, 255),
+				DarkModeBorder:    windows.RGB(39, 39, 42),
 			},
 		},
 	})

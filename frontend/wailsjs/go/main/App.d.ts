@@ -25,4 +25,6 @@ export function SaveSettings(arg1:main.Settings):Promise<void>;
 
 export function SaveTranslations(arg1:string,arg2:Array<core.StringEntry>):Promise<void>;
 
+export function SearchEntries(arg1:string,arg2:string,arg3:string):Promise<Array<core.StringEntry>>;
+
 export function SelectDirectory():Promise<string>;

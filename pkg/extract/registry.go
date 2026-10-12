@@ -34,7 +34,14 @@ func (r *Registry) GetExtractor(engine string) (core.IExtractor, error) {
 		return ext, nil
 	}
 
-	// Fallback
+	if engine == "ue3" {
+		return nil, fmt.Errorf("engine 'ue3' (Unreal Engine 3) is detection-only; text extraction is not currently supported")
+	}
+	if engine == "source" {
+		return nil, fmt.Errorf("engine 'source' (Source 1) is detection-only; text extraction is not currently supported (Source 2 is supported)")
+	}
+
+	// Fallback for custom or unrecognized engines
 	if ext, ok := r.extractors["generic"]; ok {
 		return ext, nil
 	}

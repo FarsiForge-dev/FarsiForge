@@ -2,7 +2,6 @@ package extract
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,55 +11,6 @@ import (
 	"farsiforge/pkg/core"
 	"farsiforge/pkg/scanner"
 )
-
-// RAGEExtractor reads standalone GXT2 tables and reports encrypted RPF
-// archives that need executable-derived crypto material.
-type RAGEExtractor struct{}
-
-func (*RAGEExtractor) SupportedEngine() string { return "rage" }
-func (*RAGEExtractor) Capabilities() core.ExtractorCaps {
-	return core.ExtractorCaps{TextExtraction: true}
-}
-func (*RAGEExtractor) Extract(_ context.Context, info *core.GameInfo, proj *core.Project, _ core.ToolRegistry) error {
-	files := scanner.WalkDir(info.GameRoot, 12, func(p string) bool { return strings.EqualFold(filepath.Ext(p), ".gxt2") })
-	for _, p := range files {
-		b, e := os.ReadFile(p)
-		if e != nil {
-			continue
-		}
-		rows, e := ParseGXT2(b)
-		if e != nil {
-			log.Warn("invalid GXT2", "file", p, "error", e)
-			continue
-		}
-		rel, _ := filepath.Rel(info.GameRoot, p)
-		for _, row := range rows {
-			if strings.TrimSpace(row.Text) == "" {
-				continue
-			}
-			proj.AddEntry(core.StringEntry{Source: row.Text, File: filepath.ToSlash(rel), Path: fmt.Sprintf("0x%08x", row.Hash), Context: "RAGE GXT2"})
-		}
-		proj.ExtractedFiles = append(proj.ExtractedFiles, filepath.ToSlash(rel))
-	}
-	archives := scanner.WalkDir(info.GameRoot, 8, func(p string) bool { return strings.EqualFold(filepath.Ext(p), ".rpf") })
-	var ng int
-	for _, p := range archives {
-		f, e := os.Open(p)
-		if e != nil {
-			continue
-		}
-		var h [16]byte
-		_, e = f.Read(h[:])
-		f.Close()
-		if e == nil && binary.LittleEndian.Uint32(h[:4]) == 0x52504637 && binary.LittleEndian.Uint32(h[12:16]) == 0x0fefffff {
-			ng++
-		}
-	}
-	if ng > 0 && len(files) == 0 {
-		return fmt.Errorf("found %d RPF7 NG-encrypted archives but cannot derive their NG tables without the matching game executable key hashes", ng)
-	}
-	return nil
-}
 
 // FromSoftwareExtractor extracts loose FMG files and validates encrypted BHD5
 // headers; supported BND/DCX wrappers are handled by the parsers in this package.

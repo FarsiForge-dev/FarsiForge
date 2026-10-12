@@ -4,7 +4,7 @@ package detection
 import (
 	"fmt"
 	"sort"
-	
+
 	"farsiforge/pkg/core"
 	"farsiforge/pkg/logging"
 	"farsiforge/pkg/scanner"
@@ -40,7 +40,7 @@ func (r *Registry) Detect(gameDir string) (*core.DetectionResult, error) {
 	var highestConfidence float64
 
 	log.Info("Starting engine detection", "dir", gameDir)
-	
+
 	if !scanner.DirExists(gameDir) {
 		return nil, fmt.Errorf("directory does not exist: %s", gameDir)
 	}
@@ -59,7 +59,7 @@ func (r *Registry) Detect(gameDir string) (*core.DetectionResult, error) {
 				bestMatch = result
 				highestConfidence = result.Confidence
 			}
-			
+
 			// If we have a very high confidence match, short-circuit
 			if highestConfidence >= 0.95 {
 				break
@@ -71,9 +71,9 @@ func (r *Registry) Detect(gameDir string) (*core.DetectionResult, error) {
 		return nil, core.ErrEngineNotDetected
 	}
 
-	log.Info("Engine detected", 
-		"engine", bestMatch.Engine, 
-		"version", bestMatch.Version, 
+	log.Info("Engine detected",
+		"engine", bestMatch.Engine,
+		"version", bestMatch.Version,
 		"confidence", bestMatch.Confidence)
 
 	return bestMatch, nil

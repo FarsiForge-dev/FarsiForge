@@ -127,11 +127,11 @@ func indexAfter(runes []rune, start int, target rune) int {
 
 // Options controls how Persian text is processed for game injection.
 type Options struct {
-	Reshape       bool // Convert to presentation forms (default: true)
-	BidiReorder   bool // Reorder for visual RTL display (default: true)
-	FixYeh        bool // Replace Arabic Yeh/Kaf with Persian (default: true)
-	PersianDigits bool // Convert digits to Persian (default: true)
-	ConvertPunct  bool // Convert ? , ; to Persian equivalents (default: false)
+	Reshape        bool // Convert to presentation forms (default: true)
+	BidiReorder    bool // Reorder for visual RTL display (default: true)
+	FixYeh         bool // Replace Arabic Yeh/Kaf with Persian (default: true)
+	PersianDigits  bool // Convert digits to Persian (default: true)
+	ConvertPunct   bool // Convert ? , ; to Persian equivalents (default: false)
 	DropDiacritics bool // Remove Arabic diacritics/harakat (default: false)
 }
 
@@ -139,11 +139,11 @@ type Options struct {
 // most game localization scenarios.
 func DefaultOptions() Options {
 	return Options{
-		Reshape:       true,
-		BidiReorder:   true,
-		FixYeh:        true,
-		PersianDigits: true,
-		ConvertPunct:  false,
+		Reshape:        true,
+		BidiReorder:    true,
+		FixYeh:         true,
+		PersianDigits:  true,
+		ConvertPunct:   false,
 		DropDiacritics: false,
 	}
 }
