@@ -16,7 +16,7 @@
 .idea/
 
 # Test data & tools (too large for git)
-Tools/
+/Tools/
 silent hill/
 three-game/
 two-game/
@@ -29,6 +29,8 @@ Thumbs.db
 *.tmp
 *.bak
 *~
+*.pyc
+__pycache__/
 
 # Generated knowledge graph (graphify)
 graphify-out/
