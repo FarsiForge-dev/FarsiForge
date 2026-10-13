@@ -165,6 +165,9 @@ func (r *Registry) scan() {
 	if r.Repak == "" {
 		r.Repak = findInDir(r.RootDir, "", "repak.exe")
 	}
+	if r.Repak == "" {
+		r.Repak = findAdjacentOrPath("repak.exe")
+	}
 	r.Available["repak"] = r.Repak != ""
 
 	// Find retoc (UE5 IoStore .utoc/.ucas unpacker)
@@ -172,15 +175,21 @@ func (r *Registry) scan() {
 	if r.Retoc == "" {
 		r.Retoc = findInDir(r.RootDir, "", "retoc.exe")
 	}
+	if r.Retoc == "" {
+		r.Retoc = findAdjacentOrPath("retoc.exe")
+	}
 	r.Available["retoc"] = r.Retoc != ""
 
-	// Find gdre_tools
+	// Find gdre_tools (Godot reverse-engineering toolkit)
 	r.GDRETools = findInDir(r.RootDir, "gdre", "gdre_tools.exe")
 	if r.GDRETools == "" {
 		r.GDRETools = findInDir(r.RootDir, "gdre_tools", "gdre_tools.exe")
 	}
 	if r.GDRETools == "" {
 		r.GDRETools = findInDir(r.RootDir, "", "gdre_tools.exe")
+	}
+	if r.GDRETools == "" {
+		r.GDRETools = findAdjacentOrPath("gdre_tools.exe")
 	}
 	r.Available["gdre_tools"] = r.GDRETools != ""
 
@@ -219,10 +228,13 @@ func (r *Registry) scan() {
 	r.Available["seven_zip"] = r.SevenZip != ""
 
 	// Find fftools (FarsiForge native helper). Accept fftools\fftools.exe or
-	// fftools.exe directly in RootDir.
+	// fftools.exe directly in RootDir or adjacent to executable.
 	r.FFTools = findInDir(r.RootDir, "fftools", "fftools.exe")
 	if r.FFTools == "" {
 		r.FFTools = findInDir(r.RootDir, "", "fftools.exe")
+	}
+	if r.FFTools == "" {
+		r.FFTools = findAdjacentOrPath("fftools.exe")
 	}
 	r.Available["fftools"] = r.FFTools != ""
 
@@ -392,6 +404,19 @@ func findExecutable(name string) string {
 		return ""
 	}
 	return path
+}
+
+// findAdjacentOrPath searches adjacent to the current running executable, then falls back to system PATH.
+func findAdjacentOrPath(name string) string {
+	if exePath, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exePath)
+		candidate := filepath.Join(exeDir, name)
+		if fileExists(candidate) {
+			return candidate
+		}
+	}
+	base := strings.TrimSuffix(name, ".exe")
+	return findExecutable(base)
 }
 
 // findInDir searches for a file in a directory (optionally in a subdirectory).
