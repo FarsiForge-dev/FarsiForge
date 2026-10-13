@@ -1,0 +1,40 @@
+name: Telegram AI Commit & Release Notifier
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+      - master
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+concurrency:
+  group: telegram-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  telegram-broadcast:
+    name: Broadcast to Telegram
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 25
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Send AI Commit / Release Update to Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+        run: |
+          python scripts/telegram_notifier.py
