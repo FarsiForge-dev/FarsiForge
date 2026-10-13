@@ -8,7 +8,7 @@
 [![React](https://img.shields.io/badge/React-18-61DAFB.svg?style=flat-square&logo=react)](https://reactjs.org/)
 [![Next.js](https://img.shields.io/badge/Next.js-14-000000.svg?style=flat-square&logo=nextdotjs)](https://nextjs.org/)
 [![Wails](https://img.shields.io/badge/Wails-v2-DF1A29.svg?style=flat-square&logo=wails)](https://wails.io)
-[![Organization](https://img.shields.io/badge/GitHub-FarsiForge--dev-181717.svg?style=flat-square&logo=github)](https://github.com/FarsiForge-dev)
+[![Telegram](https://img.shields.io/badge/Telegram-Channel-2CA5E0.svg?style=flat-square&logo=telegram)](https://t.me/farsiforge)
 [![License](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
 
 *FarsiForge automates the complex pipeline of game localization for the Persian (Farsi) language. It provides game engine detection, native archive unpacking, high-fidelity string extraction, bidirectional text reshaping, safe format injection, and standalone reversible patch generation.*
@@ -24,7 +24,7 @@
   - **FromSoftware:** Native BHD5/BDT archive extraction, DCX compression handling, BND3/BND4 containers, and FMG string table parsing (v1/v2 wide/Unicode).
   - **RAGE (Rockstar Games / GTA V):** Traversal and decryption of encrypted RPF7 archives using AES-256-ECB and Knuth 32-bit PRNG table derivation via `magic.dat`, plus GXT2 text parsing.
   - **Unreal Engine:** Deep parsing of `.locres` (versions 0, 1, 2, and 3), `.pak` archive extraction via `repak`, and UE5 IoStore container extraction (`.utoc` / `.ucas`) via `retoc`.
-  - **Godot Engine:** Recovers text from PCK v2, v3, and v4 (supporting Godot 4.7/4.8) via `gdre_tools v2.7.4`, plus binary `OptimizedTranslation` resource import/export and standalone unencrypted PCK rebuild.
+  - **Godot Engine:** Recovers text from PCK v2, v3, and v4 (supporting Godot 4.7/4.8) via `gdre_tools v2.8.0`, plus binary `OptimizedTranslation` resource import/export and standalone unencrypted PCK rebuild.
   - **Unity:** TextAsset and MonoBehaviour text extraction across Mono and IL2CPP builds with typetree validation.
   - **Other Engines:** Valve KeyValues (Source 2 / Deadlock, GoldSrc), SAGE (`.big`, `.csf`), Factorio (`locale/*.cfg`), Project Zomboid (Lua translation tables), and structured generic files (`.json`, `.xml`, `.csv`, `.ini`, `.txt`, `.yaml`).
 - **💉 Safe Staged Translation Injection:**
@@ -53,7 +53,7 @@ In professional game localization, **Detection**, **Extraction**, **Injection (W
 |-----------------|:---------:|:----------:|:-------------------:|:---------------:|-------------------------|
 | **FromSoftware** (Elden Ring / Souls) | ✅ | ✅ BHD5/BDT, DCX, BND3/BND4, FMG (v1/v2) | ✅ Pure Go FMG encoder, DCX DFLT compressor, BND4 writer | ✅ | Verified on *ELDEN RING* Data0 (520,750 entries across 24 message bundles; extraction & roundtrip write-back verified). |
 | **Unreal Engine 4 / 5** | ✅ | ✅ `.locres` (v0–v3), `.pak` (repak), IoStore `.utoc`/`.ucas` (retoc) | ⚠️ Loose `.locres` staging & write-back via `fftools` (compiled `.uexp` marked read-only) | ✅ | Verified on *Hacker Simulator* (11,676 entries) and *Fortnite* (85 `.pak` containers). |
-| **Godot 3 / 4** | ✅ | ✅ Recovered `.tres/.gd/.tscn` text (gdre_tools v2.7.4), PCK v2–v4, `.translation` export | ⚠️ Updates CSV-resolved `.translation` resources in unencrypted PCK v2–v4 via `fftools` | ✅ | Verified on *MOLDRISE v1.0.5* (Godot 4.7, PCK v4, 3,789 strings) and synthetic PCK roundtrip tests. |
+| **Godot 3 / 4** | ✅ | ✅ Recovered `.tres/.gd/.tscn` text (gdre_tools v2.8.0), PCK v2–v4, `.translation` export | ⚠️ Updates CSV-resolved `.translation` resources in unencrypted PCK v2–v4 via `fftools` | ✅ | Verified on *MOLDRISE v1.0.5* (Godot 4.7, PCK v4, 3,789 strings) and synthetic PCK roundtrip tests. |
 | **Unity** (Mono + IL2CPP) | ✅ | ✅ UnityPy TextAsset & recovered MonoBehaviour paths | ⚠️ Requires verified writable typetree identity; raw-byte candidates rejected | ✅ | Verified on *ASKA* (324,899 entries), *Raft* (59,111 entries), and *Orc Massage* (13,148 entries). |
 | **Generic / Custom** | ✅ | ✅ Structured text (`.json`, `.txt`, `.ini`, `.csv`, `.tsv`, `.xml`, `.yaml`) | ✅ Direct in-place staging for structured text | ✅ | Verified on *DDPER 8.4* and synthetic fixture matrices. |
 | **RAGE** (GTA V) | ✅ | ✅ Encrypted RPF7 traversal (AES-256-ECB + Knuth PRNG tables via `magic.dat`), Deflate, GXT2 | ❌ Extract-only (re-encrypting RPF7 archives is not supported; loose-file modding recommended) | ❌ | Verified on *Grand Theft Auto V* build 1.0.3725.0 (8,669,936 strings across 43 archives). |
@@ -128,7 +128,7 @@ FarsiForge orchestrates specialized companion utilities curated within the [Fars
 | **`FarsiForgePatcher.exe`** | [FarsiForge/patcher](file:///d:/FarsiForge-dev/FarsiForge/patcher) | High-performance C# Windows Forms installer with backup, atomic rollback, and uninstall. |
 | **`repak.exe`** | [FarsiForge-dev/repak](https://github.com/FarsiForge-dev/repak) | Blazing-fast Unreal Engine `.pak` archive extractor. |
 | **`retoc.exe`** | [FarsiForge-dev/retoc](https://github.com/FarsiForge-dev/retoc) | Unreal Engine 5 IoStore container (`.utoc` / `.ucas`) unpacker. |
-| **`gdre_tools.exe`** | [FarsiForge-dev/gdsdecomp](https://github.com/FarsiForge-dev/gdsdecomp) | Godot PCK reverse-engineering and asset recovery toolkit. |
+| **`gdre_tools.exe`** | [FarsiForge-dev/gdsdecomp](https://github.com/FarsiForge-dev/gdsdecomp) | Godot PCK reverse-engineering and asset recovery toolkit (v2.8.0 with headless native console subsystem). |
 | **`magic.dat`** | [FarsiForge-dev/CodeWalker](https://github.com/FarsiForge-dev/CodeWalker) | Modern lookup tables for Rockstar RAGE RPF7 AES key derivation. |
 | **`UnityPy`** | [FarsiForge-dev/UnityPy](https://github.com/FarsiForge-dev/UnityPy) | Python module for Unity typetree asset extraction and serialization. |
 | **`vazirmatn`** | [FarsiForge-dev/vazirmatn](https://github.com/FarsiForge-dev/vazirmatn) | High-legibility Persian typeface bundled for game UI injection. |
