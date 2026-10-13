@@ -28,7 +28,11 @@ type App struct {
 // NewApp creates a new App application struct. It uses the portable tool
 // registry (NewRegistry with empty string → auto-resolved Tools directory).
 func NewApp() *App {
-	toolReg, _ := tools.NewRegistry("")
+	toolsDir := ""
+	if cfg, err := core.LoadConfig(core.ConfigPath()); err == nil {
+		toolsDir = cfg.ToolsDir
+	}
+	toolReg, _ := tools.NewRegistry(toolsDir)
 	return &App{
 		registry: detection.DefaultRegistry(),
 		toolReg:  toolReg,
@@ -93,6 +97,9 @@ func (a *App) SaveSettings(s *Settings) error {
 	if err := core.SaveConfig(cfg, core.ConfigPath()); err != nil {
 		return fmt.Errorf("save config: %v", err)
 	}
+	// Re-discover tools immediately; saving a tools directory must affect
+	// subsequent extraction and status calls without restarting the app.
+	a.toolReg, _ = tools.NewRegistry(cfg.ToolsDir)
 	return nil
 }
 
@@ -149,8 +156,13 @@ func (a *App) InstallPythonPackage(name string) (string, error) {
 	if name == "" {
 		return "", fmt.Errorf("package name is required")
 	}
+	// Only the supported dependency may be installed through this bridge.
+	// Reject pip options, URLs and paths supplied as package names.
+	if !strings.EqualFold(name, "UnityPy") {
+		return "", fmt.Errorf("unsupported Python package: %q (supported: UnityPy)", name)
+	}
 	// Use `python -m pip install` so it targets the same interpreter.
-	out, err := tools.RunSilent(a.ctx, "", reg.Python, "-m", "pip", "install", name)
+	out, err := tools.RunSilent(a.ctx, "", reg.Python, "-m", "pip", "install", "UnityPy")
 	if err != nil {
 		return out, fmt.Errorf("pip install failed: %v\n%s", err, out)
 	}
