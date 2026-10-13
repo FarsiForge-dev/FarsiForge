@@ -86,11 +86,11 @@ func DefaultConfig() Config {
 	homeDir, _ := os.UserHomeDir()
 	root := findProjectRoot()
 
-	// Build game search paths from env + sensible defaults.
+	// Build game search paths from env + sensible defaults. Env-provided
+	// entries are explicit user overrides, so they are kept even when the
+	// directory does not exist yet.
 	gamePaths := defaultGameSearchPaths(homeDir)
-	if extra := os.Getenv(EnvGameSearchPath); extra != "" {
-		gamePaths = append(gamePaths, filepath.SplitList(extra)...)
-	}
+	gamePaths = appendUniquePaths(gamePaths, filepath.SplitList(os.Getenv(EnvGameSearchPath))...)
 
 	return Config{
 		ToolsDir:           findToolsDir(),
@@ -106,6 +106,33 @@ func DefaultConfig() Config {
 		PythonExe:          defaultPythonExe(),
 		ProjectRoot:        root,
 	}
+}
+
+// appendUniquePaths appends paths to base, skipping empty entries and
+// duplicates (compared after cleaning). Unlike defaultGameSearchPaths it does
+// not require the directories to exist, which makes it suitable for explicit
+// user overrides.
+func appendUniquePaths(base []string, extra ...string) []string {
+	seen := make(map[string]struct{}, len(base)+len(extra))
+	for _, p := range base {
+		if p == "" {
+			continue
+		}
+		seen[filepath.Clean(p)] = struct{}{}
+	}
+	for _, p := range extra {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		clean := filepath.Clean(p)
+		if _, ok := seen[clean]; ok {
+			continue
+		}
+		seen[clean] = struct{}{}
+		base = append(base, clean)
+	}
+	return base
 }
 
 // defaultGameSearchPaths returns the default game search paths, derived

@@ -1,7 +1,7 @@
 package extract
 
 import (
-	"path/filepath"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -348,6 +348,10 @@ func godotStringIsDictionaryKey(text string, end int) bool {
 }
 
 func isGodotEditorAddon(relPath string) bool {
-	parts := strings.Split(strings.ToLower(filepath.ToSlash(filepath.Clean(relPath))), "/")
+	// Normalize both separator styles explicitly: filepath.ToSlash is a no-op
+	// on Unix, so Windows-style paths (e.g. addons\\x\\editor\\y.tscn) must
+	// be converted by hand to keep the check platform-independent.
+	normalized := strings.ReplaceAll(relPath, "\\", "/")
+	parts := strings.Split(strings.ToLower(path.Clean(normalized)), "/")
 	return len(parts) >= 3 && parts[0] == "addons" && parts[2] == "editor"
 }

@@ -3,6 +3,7 @@ package core
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -45,17 +46,41 @@ func TestDefaultConfig_PythonExeEnvOverride(t *testing.T) {
 }
 
 func TestDefaultConfig_GameSearchPathEnvOverride(t *testing.T) {
-	t.Setenv(EnvGameSearchPath, `C:\MyGames;D:\MoreGames`)
+	// Build the override with the platform list separator so the test does not
+	// depend on Windows-style paths (a hardcoded `C:\...;D:\...` value only
+	// worked on Windows). Entries are kept verbatim as explicit overrides.
+	first := filepath.Join(string(filepath.Separator), "MyGames")
+	second := filepath.Join(string(filepath.Separator), "MoreGames")
+	t.Setenv(EnvGameSearchPath, strings.Join([]string{first, second}, string(filepath.ListSeparator)))
 	cfg := DefaultConfig()
 
-	found := false
-	for _, p := range cfg.GameSearchPaths {
-		if p == `C:\MyGames` || p == `D:\MoreGames` {
-			found = true
+	for _, want := range []string{first, second} {
+		found := false
+		for _, p := range cfg.GameSearchPaths {
+			if p == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("GameSearchPaths %v should contain env-provided path %q", cfg.GameSearchPaths, want)
 		}
 	}
-	if !found {
-		t.Error("GameSearchPaths should contain env-provided paths")
+}
+
+func TestDefaultConfig_GameSearchPathEnvDeduplicates(t *testing.T) {
+	shared := filepath.Join(string(filepath.Separator), "MyGames")
+	t.Setenv(EnvGameSearchPath, strings.Join([]string{shared, shared}, string(filepath.ListSeparator)))
+	cfg := DefaultConfig()
+
+	count := 0
+	for _, p := range cfg.GameSearchPaths {
+		if p == shared {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("GameSearchPaths contains %q %d times, want exactly once", shared, count)
 	}
 }
 
