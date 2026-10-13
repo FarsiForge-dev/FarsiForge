@@ -71,6 +71,15 @@ func DefaultRegistry() *Registry {
 	return r
 }
 
+// ContentProbe is implemented by extractors that need an external tool but can
+// tell whether the game directory actually contains something they could
+// process. It lets the pipeline skip such a game (0 entries) instead of
+// aborting with a confusing "tool not available" error when there is simply
+// nothing to extract.
+type ContentProbe interface {
+	HasExtractableContent(info *core.GameInfo) bool
+}
+
 // Run executes the full extraction pipeline.
 func Run(ctx context.Context, info *core.GameInfo, proj *core.Project, reg core.ToolRegistry) error {
 	r := DefaultRegistry()
@@ -80,12 +89,18 @@ func Run(ctx context.Context, info *core.GameInfo, proj *core.Project, reg core.
 		return core.Wrap("extract", err, "could not find extractor")
 	}
 
-	// Check if external tools are needed and available
+	// Check if external tools are needed and available. An extractor that
+	// implements ContentProbe and reports no extractable content must not abort
+	// the run: there is nothing the missing tool could have processed, so the
+	// pipeline completes with zero entries instead of a hard failure.
 	caps := ext.Capabilities()
-	if caps.NeedsExternalTool && caps.ToolName != "" {
-		if !reg.IsAvailable(caps.ToolName) {
-			return core.ErrToolNotFound(caps.ToolName)
+	if caps.NeedsExternalTool && caps.ToolName != "" && !reg.IsAvailable(caps.ToolName) {
+		if probe, ok := ext.(ContentProbe); ok && !probe.HasExtractableContent(info) {
+			log.Warn("No extractable content found; skipping extraction",
+				"engine", info.Engine, "missing_tool", caps.ToolName, "dir", info.GameRoot)
+			return nil
 		}
+		return core.ErrToolNotFound(caps.ToolName)
 	}
 
 	log.Info("Starting extraction", "engine", info.Engine, "game", proj.GameName)

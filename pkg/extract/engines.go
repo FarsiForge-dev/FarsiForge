@@ -165,10 +165,83 @@ func (e *UnityExtractor) Capabilities() core.ExtractorCaps {
 	}
 }
 
+// unityAssetExtensions are file extensions that hold serialized Unity data.
+var unityAssetExtensions = map[string]bool{
+	".assets":       true,
+	".bundle":       true,
+	".unity3d":      true,
+	".resource":     true,
+	".ress":         true,
+	".bytes":        true,
+	".apk":          true,
+	".obb":          true,
+	".unitypackage": true,
+}
+
+// unityAssetNames are the well-known Unity serialized-asset file names.
+var unityAssetNames = map[string]bool{
+	"globalgamemanagers":        true,
+	"globalgamemanagers.assets": true,
+	"maindata":                  true,
+}
+
+// hasUnityContent reports whether root looks like a Unity build that actually
+// ships assets. An empty `<Game>_Data` folder (or a bare UnityPlayer.dll) is
+// not enough: without any serialized asset the UnityPy pipeline has nothing to
+// do, so the caller can skip extraction instead of demanding the tool.
+func hasUnityContent(root string) bool {
+	if strings.TrimSpace(root) == "" {
+		return false
+	}
+	found := false
+	scanner.WalkDir(root, 5, func(p string) bool {
+		if found {
+			return true
+		}
+		info, err := os.Stat(p)
+		if err != nil || info.IsDir() {
+			return false
+		}
+		name := strings.ToLower(filepath.Base(p))
+		if unityAssetNames[name] || unityAssetExtensions[strings.ToLower(filepath.Ext(p))] {
+			found = true
+			return true
+		}
+		// Any regular file inside a `<Something>_Data` directory counts as
+		// content (Managed assemblies, StreamingAssets, level data, ...).
+		for _, seg := range strings.Split(filepath.ToSlash(filepath.Dir(p)), "/") {
+			if strings.HasSuffix(strings.ToLower(seg), "_data") {
+				found = true
+				return true
+			}
+		}
+		return false
+	})
+	return found
+}
+
+// HasExtractableContent implements ContentProbe.
+func (e *UnityExtractor) HasExtractableContent(info *core.GameInfo) bool {
+	if info == nil {
+		return false
+	}
+	if hasUnityContent(info.DataPath) {
+		return true
+	}
+	return hasUnityContent(info.GameRoot)
+}
+
 func (e *UnityExtractor) Extract(ctx context.Context, info *core.GameInfo, proj *core.Project, reg core.ToolRegistry) error {
 	workDir, err := proj.EnsureWorkingDir()
 	if err != nil {
 		return err
+	}
+
+	// Nothing to feed to UnityPy: report success with zero entries rather than
+	// an error that suggests the game itself is broken.
+	if !e.HasExtractableContent(info) {
+		log.Warn("No Unity assets found; skipping Unity extraction", "dir", info.GameRoot)
+		return nil
 	}
 
 	// UnityPy is a pip package; check the python-package availability flag.
@@ -252,6 +325,35 @@ func (e *UnrealExtractor) Capabilities() core.ExtractorCaps {
 		NeedsExternalTool: true,
 		ToolName:          "fftools",
 	}
+}
+
+// unrealContentExtensions are the file types the Unreal extractor can process.
+var unrealContentExtensions = map[string]bool{
+	".locres":  true,
+	".locmeta": true,
+	".pak":     true,
+	".utoc":    true,
+	".ucas":    true,
+	".uasset":  true,
+	".uexp":    true,
+}
+
+// HasExtractableContent implements ContentProbe.
+func (e *UnrealExtractor) HasExtractableContent(info *core.GameInfo) bool {
+	if info == nil {
+		return false
+	}
+	for _, root := range []string{info.DataPath, info.GameRoot} {
+		if strings.TrimSpace(root) == "" {
+			continue
+		}
+		if len(scanner.WalkDir(root, 6, func(p string) bool {
+			return unrealContentExtensions[strings.ToLower(filepath.Ext(p))]
+		})) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *UnrealExtractor) Extract(ctx context.Context, info *core.GameInfo, proj *core.Project, reg core.ToolRegistry) error {
@@ -586,6 +688,34 @@ func (e *GodotExtractor) Capabilities() core.ExtractorCaps {
 		NeedsExternalTool: true,
 		ToolName:          "fftools",
 	}
+}
+
+// godotContentExtensions are the file types the Godot extractor can process.
+var godotContentExtensions = map[string]bool{
+	".pck":         true,
+	".translation": true,
+	".tres":        true,
+	".tscn":        true,
+	".gd":          true,
+	".res":         true,
+}
+
+// HasExtractableContent implements ContentProbe.
+func (e *GodotExtractor) HasExtractableContent(info *core.GameInfo) bool {
+	if info == nil {
+		return false
+	}
+	for _, root := range []string{info.DataPath, info.GameRoot} {
+		if strings.TrimSpace(root) == "" {
+			continue
+		}
+		if len(scanner.WalkDir(root, 4, func(p string) bool {
+			return godotContentExtensions[strings.ToLower(filepath.Ext(p))]
+		})) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *GodotExtractor) Extract(ctx context.Context, info *core.GameInfo, proj *core.Project, reg core.ToolRegistry) error {
