@@ -128,15 +128,18 @@ jobs:
             Copy-Item "Tools/gdre_tools/*" build/bin/Tools/gdre/ -Force
           } else {
             Write-Host "Downloading gdre (Godot RE Tools)..."
-            $gdreZip = "$env:TEMP/GDRE_tools-windows.zip"
+            $gdreZip = "$env:TEMP/gdre_tools-farsiforge-windows.zip"
             try {
-              Invoke-WebRequest -Uri "https://github.com/FarsiForge-dev/gdre/releases/download/v2.7.4/GDRE_tools-v2.7.4-windows.zip" -OutFile $gdreZip -ErrorAction Stop
+              Invoke-WebRequest -Uri "https://github.com/FarsiForge-dev/gdre/releases/download/v2.8.0/gdre_tools-farsiforge-windows-x86_64.zip" -OutFile $gdreZip -ErrorAction Stop
+              Expand-Archive -Path $gdreZip -DestinationPath build/bin/Tools/gdre -Force
+              Remove-Item $gdreZip -Force
             } catch {
-              Write-Host "Falling back to upstream GDRETools..."
-              Invoke-WebRequest -Uri "https://github.com/GDRETools/gdsdecomp/releases/download/v2.7.4/GDRE_tools-v2.7.4-windows.zip" -OutFile $gdreZip
+              Write-Host "Falling back to v2.7.4..."
+              $fallbackZip = "$env:TEMP/GDRE_tools-windows.zip"
+              Invoke-WebRequest -Uri "https://github.com/FarsiForge-dev/gdre/releases/download/v2.7.4/GDRE_tools-v2.7.4-windows.zip" -OutFile $fallbackZip
+              Expand-Archive -Path $fallbackZip -DestinationPath build/bin/Tools/gdre -Force
+              Remove-Item $fallbackZip -Force
             }
-            Expand-Archive -Path $gdreZip -DestinationPath build/bin/Tools/gdre -Force
-            Remove-Item $gdreZip -Force
           }
 
           # 5. Vazirmatn font
