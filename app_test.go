@@ -288,3 +288,44 @@ func TestEndToEndTranslateBuildApplyAndUninstall(t *testing.T) {
 		t.Fatalf("uninstall restored %q, want %q", restored, original)
 	}
 }
+
+func TestGetEngineSupportMatchesBackendRegistries(t *testing.T) {
+	app := &App{}
+
+	for _, tc := range []struct {
+		engine        string
+		extraction    bool
+		injection     bool
+		detectionOnly bool
+	}{
+		{engine: "unity", extraction: true, injection: true},
+		{engine: "UNREAL ", extraction: true, injection: true},
+		{engine: "ue3", extraction: false, injection: false, detectionOnly: true},
+		{engine: "source", extraction: false, injection: false, detectionOnly: true},
+		{engine: "sage", extraction: true, injection: false},
+	} {
+		support := app.GetEngineSupport(tc.engine)
+		if support.Extraction != tc.extraction {
+			t.Errorf("GetEngineSupport(%q).Extraction = %v, want %v", tc.engine, support.Extraction, tc.extraction)
+		}
+		if support.Injection != tc.injection {
+			t.Errorf("GetEngineSupport(%q).Injection = %v, want %v", tc.engine, support.Injection, tc.injection)
+		}
+		if support.DetectionOnly != tc.detectionOnly {
+			t.Errorf("GetEngineSupport(%q).DetectionOnly = %v, want %v", tc.engine, support.DetectionOnly, tc.detectionOnly)
+		}
+		if !tc.extraction && support.ExtractionNote == "" {
+			t.Errorf("GetEngineSupport(%q) must explain why extraction is unavailable", tc.engine)
+		}
+		if !tc.injection && support.InjectionNote == "" {
+			t.Errorf("GetEngineSupport(%q) must explain why injection is unavailable", tc.engine)
+		}
+	}
+}
+
+func TestGetEngineSupportNormalizesEngineName(t *testing.T) {
+	support := (&App{}).GetEngineSupport("  UnItY  ")
+	if support.Engine != "unity" {
+		t.Errorf("Engine = %q, want %q", support.Engine, "unity")
+	}
+}

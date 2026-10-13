@@ -11,6 +11,8 @@ export function Extract(arg1:core.GameInfo):Promise<number>;
 
 export function GetProject(arg1:string):Promise<core.Project>;
 
+export function GetEngineSupport(arg1:string):Promise<main.EngineSupport>;
+
 export function GetSettings():Promise<main.Settings>;
 
 export function GetToolStatus():Promise<main.ToolStatus>;

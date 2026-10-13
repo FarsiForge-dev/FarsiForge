@@ -25,18 +25,12 @@ type App struct {
 	toolReg  *tools.Registry
 }
 
-// NewApp creates a new App application struct. It uses the portable tool
-// registry (NewRegistry with empty string → auto-resolved Tools directory).
+// NewApp creates a new App application struct. The tool registry is built from
+// the configured ToolsDir (falling back to portable auto-discovery).
 func NewApp() *App {
-	toolsDir := ""
-	if cfg, err := core.LoadConfig(core.ConfigPath()); err == nil {
-		toolsDir = cfg.ToolsDir
-	}
-	toolReg, _ := tools.NewRegistry(toolsDir)
-	return &App{
-		registry: detection.DefaultRegistry(),
-		toolReg:  toolReg,
-	}
+	a := &App{registry: detection.DefaultRegistry()}
+	a.newToolRegistry()
+	return a
 }
 
 // startup is called when the app starts. The context is saved
@@ -125,8 +119,7 @@ type ToolStatus struct {
 func (a *App) GetToolStatus() *ToolStatus {
 	reg := a.toolReg
 	if reg == nil {
-		reg, _ = tools.NewRegistry("")
-		a.toolReg = reg
+		reg = a.newToolRegistry()
 	}
 	status := &ToolStatus{
 		ToolsDir:      reg.RootDir,
@@ -167,9 +160,57 @@ func (a *App) InstallPythonPackage(name string) (string, error) {
 		return out, fmt.Errorf("pip install failed: %v\n%s", err, out)
 	}
 	// Refresh the registry so newly installed packages are detected.
-	reg, _ = tools.NewRegistry(reg.RootDir)
-	a.toolReg = reg
+	a.newToolRegistry()
 	return out, nil
+}
+
+// newToolRegistry builds a tool registry from the configured ToolsDir (falling
+// back to auto-discovery) and stores it on the App.
+func (a *App) newToolRegistry() *tools.Registry {
+	toolsDir := ""
+	if cfg, err := core.LoadConfig(core.ConfigPath()); err == nil {
+		toolsDir = cfg.ToolsDir
+	}
+	reg, _ := tools.NewRegistry(toolsDir)
+	a.toolReg = reg
+	return reg
+}
+
+// ── Engine capability reporting ─────────────────────────────────────
+
+// EngineSupport reports which pipeline stages the backend can actually run
+// for a detected engine. The frontend must ask for this instead of keeping its
+// own engine lists, which silently drift whenever a registry gains or loses an
+// engine.
+type EngineSupport struct {
+	Engine         string `json:"engine"`
+	Extraction     bool   `json:"extraction"`
+	Injection      bool   `json:"injection"`
+	ExtractionNote string `json:"extraction_note,omitempty"`
+	InjectionNote  string `json:"injection_note,omitempty"`
+	DetectionOnly  bool   `json:"detection_only"`
+}
+
+// GetEngineSupport reports extraction/injection support for the given engine by
+// consulting the real extractor and injector registries.
+func (a *App) GetEngineSupport(engine string) *EngineSupport {
+	engine = strings.ToLower(strings.TrimSpace(engine))
+	support := &EngineSupport{Engine: engine}
+
+	if _, err := extract.DefaultRegistry().GetExtractor(engine); err != nil {
+		support.ExtractionNote = err.Error()
+	} else {
+		support.Extraction = true
+	}
+
+	if _, err := inject.DefaultRegistry().GetInjector(engine); err != nil {
+		support.InjectionNote = err.Error()
+	} else {
+		support.Injection = true
+	}
+
+	support.DetectionOnly = !support.Extraction && !support.Injection
+	return support
 }
 
 // ── Detection / extraction / injection ──────────────────────────────
@@ -394,8 +435,7 @@ func (a *App) BuildPatcher(gameRoot string, credits string) (*BuildPatcherResult
 	// Resolve the patcher exe from the tool registry.
 	reg := a.toolReg
 	if reg == nil {
-		reg, _ = tools.NewRegistry("")
-		a.toolReg = reg
+		reg = a.newToolRegistry()
 	}
 	patcherExe := filepath.Join(reg.RootDir, "patcher", "FarsiForgePatcher.exe")
 

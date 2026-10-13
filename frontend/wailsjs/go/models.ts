@@ -177,6 +177,28 @@ export namespace main {
 	        this.target_count = source["target_count"];
 	    }
 	}
+	export class EngineSupport {
+	    engine: string;
+	    extraction: boolean;
+	    injection: boolean;
+	    extraction_note?: string;
+	    injection_note?: string;
+	    detection_only: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new EngineSupport(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.engine = source["engine"];
+	        this.extraction = source["extraction"];
+	        this.injection = source["injection"];
+	        this.extraction_note = source["extraction_note"];
+	        this.injection_note = source["injection_note"];
+	        this.detection_only = source["detection_only"];
+	    }
+	}
 	export class Settings {
 	    tools_dir: string;
 	    output_dir: string;

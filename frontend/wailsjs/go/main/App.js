@@ -18,6 +18,10 @@ export function GetProject(arg1) {
   return window['go']['main']['App']['GetProject'](arg1);
 }
 
+export function GetEngineSupport(arg1) {
+  return window['go']['main']['App']['GetEngineSupport'](arg1);
+}
+
 export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }

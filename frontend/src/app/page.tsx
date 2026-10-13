@@ -20,8 +20,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { SelectDirectory, DetectEngine, Extract, GetProject, SaveTranslations, Inject, BuildPatcher } from "../../wailsjs/go/main/App";
-import { core } from "../../wailsjs/go/models";
+import { SelectDirectory, DetectEngine, Extract, GetProject, GetEngineSupport, SaveTranslations, Inject, BuildPatcher } from "../../wailsjs/go/main/App";
+import { core, main } from "../../wailsjs/go/models";
 
 type Step = "detect" | "extract" | "translate" | "inject" | "patch" | "success";
 
@@ -31,6 +31,9 @@ export default function FarsiForgeDashboard() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [gameInfo, setGameInfo] = useState<core.GameInfo | null>(null);
+  // Pipeline capabilities reported by the backend; never hardcode engine
+  // lists here, they would silently drift from the Go registries.
+  const [engineSupport, setEngineSupport] = useState<main.EngineSupport | null>(null);
   const [translations, setTranslations] = useState<core.StringEntry[]>([]);
   const [patchResult, setPatchResult] = useState<Awaited<ReturnType<typeof BuildPatcher>> | null>(null);
   const [patchCredits, setPatchCredits] = useState("");
@@ -41,11 +44,11 @@ export default function FarsiForgeDashboard() {
     engine: gameInfo ? gameInfo.engine : "---",
     backend: gameInfo ? gameInfo.backend : "---",
     confidence: gameInfo ? (gameInfo.confidence * 100).toFixed(0) + "%" : "---",
-    files: "---"
+    evidence: gameInfo?.evidence?.length ? String(gameInfo.evidence.length) : "---"
   };
 
-  const isDetectionOnly = gameInfo ? ["ue3", "source"].includes(gameInfo.engine.toLowerCase()) : false;
-  const isExtractOnly = gameInfo ? ["sage", "goldsrc", "source2", "factorio", "zomboid", "rage"].includes(gameInfo.engine.toLowerCase()) : false;
+  const isDetectionOnly = engineSupport ? !engineSupport.extraction : false;
+  const isExtractOnly = engineSupport ? !engineSupport.injection : false;
 
   // Filtered entry list for the translate step: case-insensitive search
   // across id/source/translation/file/notes plus a status filter ("qa"
@@ -98,6 +101,7 @@ export default function FarsiForgeDashboard() {
       if (next === "extract") {
         const info = await DetectEngine(dirPath);
         setGameInfo(info);
+        setEngineSupport(await GetEngineSupport(info.engine));
       } else if (next === "translate") {
         await Extract(selectedGame!);
         const proj = await GetProject(selectedGame!.game_root);
@@ -123,7 +127,7 @@ export default function FarsiForgeDashboard() {
 
   return (
     <div className="min-h-screen p-6 flex items-center justify-center relative overflow-hidden">
-      <div className="absolute inset-0 bg-[url('https://transparenttextures.com/patterns/cubes.png')] opacity-10 pointer-events-none mix-blend-overlay"></div>
+      <div className="absolute inset-0 bg-[url('/textures/cubes.svg')] opacity-10 pointer-events-none mix-blend-overlay"></div>
       
       <div className="max-w-5xl w-full grid grid-cols-1 lg:grid-cols-12 gap-8 z-10">
         
@@ -160,8 +164,8 @@ export default function FarsiForgeDashboard() {
                 <span className="text-green-400 font-bold">{currentStep !== "detect" ? engineInfo.confidence : "---"}</span>
               </div>
               <div className="flex justify-between items-center py-2">
-                <span className="text-zinc-400">تعداد فایل‌ها</span>
-                <span className="font-mono text-zinc-300">{currentStep !== "detect" ? engineInfo.files : "---"}</span>
+                <span className="text-zinc-400">شواهد شناسایی</span>
+                <span className="font-mono text-zinc-300">{currentStep !== "detect" ? engineInfo.evidence : "---"}</span>
               </div>
             </CardContent>
           </Card>
@@ -268,6 +272,7 @@ export default function FarsiForgeDashboard() {
                       {isDetectionOnly && (
                         <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-amber-300 text-sm max-w-md mx-auto">
                           ⚠ موتور {engineInfo.engine} در وضعیت فقط-شناسایی (Detection-Only) است؛ ماژول استخراج اختصاصی برای آن در دسترس نیست.
+                          {engineSupport?.extraction_note ? ` (${engineSupport.extraction_note})` : ""}
                         </div>
                       )}
                     </div>
@@ -375,6 +380,7 @@ export default function FarsiForgeDashboard() {
                       {isExtractOnly ? (
                         <span className="text-xs text-amber-400">
                           ℹ موتور {engineInfo.engine} در وضعیت فقط-استخراج (Extract-Only) است؛ تزریق خودکار غیرفعال است.
+                          {engineSupport?.injection_note ? ` (${engineSupport.injection_note})` : ""}
                         </span>
                       ) : <span />}
                       <Button onClick={() => handleNextStep("inject")} disabled={isExtractOnly} size="lg" className="bg-blue-600 hover:bg-blue-700">
