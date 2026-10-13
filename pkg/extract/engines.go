@@ -354,6 +354,9 @@ func (e *UnrealExtractor) exportLocresFile(ctx context.Context, proj *core.Proje
 // repakPath returns the repak.exe path (UE4 .pak unpacker), or "" if absent.
 func repakPath(reg core.ToolRegistry) string {
 	if tr := toolsRegistry(reg); tr != nil {
+		if tr.Repak != "" && scanner.FileExists(tr.Repak) {
+			return tr.Repak
+		}
 		for _, p := range []string{
 			filepath.Join(tr.RootDir, "repak", "repak.exe"),
 			filepath.Join(tr.RootDir, "repak.exe"),
@@ -362,6 +365,9 @@ func repakPath(reg core.ToolRegistry) string {
 				return p
 			}
 		}
+	}
+	if p := reg.GetPath("repak"); p != "" && scanner.FileExists(p) {
+		return p
 	}
 	return ""
 }
@@ -483,7 +489,7 @@ func (e *UnrealExtractor) extractFromPak(ctx context.Context, info *core.GameInf
 // retocPath returns the retoc.exe path (UE5 IoStore .utoc/.ucas unpacker), or "" if absent.
 func retocPath(reg core.ToolRegistry) string {
 	if tr := toolsRegistry(reg); tr != nil {
-		if tr.Retoc != "" {
+		if tr.Retoc != "" && scanner.FileExists(tr.Retoc) {
 			return tr.Retoc
 		}
 		for _, p := range []string{
@@ -495,7 +501,10 @@ func retocPath(reg core.ToolRegistry) string {
 			}
 		}
 	}
-	return reg.GetPath("retoc")
+	if p := reg.GetPath("retoc"); p != "" && scanner.FileExists(p) {
+		return p
+	}
+	return ""
 }
 
 // extractFromUtoc extracts .locres and text assets from UE5 IoStore containers (.utoc/.ucas).

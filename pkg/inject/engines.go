@@ -133,10 +133,14 @@ func fftoolsPath(reg core.ToolRegistry) string {
 }
 
 func repakPath(reg core.ToolRegistry) string {
-	if tr := toolsRegistry(reg); tr != nil {
+	if tr := toolsRegistry(reg); tr != nil && tr.Repak != "" && scanner.FileExists(tr.Repak) {
 		return tr.Repak
 	}
-	return reg.GetPath("repak")
+	p := reg.GetPath("repak")
+	if scanner.FileExists(p) {
+		return p
+	}
+	return ""
 }
 
 func sanitizePakName(p string) string {

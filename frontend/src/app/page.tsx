@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   FolderSearch, 
@@ -8,20 +8,22 @@ import {
   Box, 
   Rocket, 
   CheckCircle2, 
+  XCircle,
   Cpu, 
   FolderOpen,
   ArrowRight,
   Database,
   Languages,
-  Code2
+  Code2,
+  Wrench
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { SelectDirectory, DetectEngine, Extract, GetProject, SaveTranslations, Inject, BuildPatcher } from "../../wailsjs/go/main/App";
-import { core } from "../../wailsjs/go/models";
+import { SelectDirectory, DetectEngine, Extract, GetProject, SaveTranslations, Inject, BuildPatcher, GetToolStatus } from "../../wailsjs/go/main/App";
+import { core, main } from "../../wailsjs/go/models";
 
 type Step = "detect" | "extract" | "translate" | "inject" | "patch" | "success";
 
@@ -36,12 +38,27 @@ export default function FarsiForgeDashboard() {
   const [patchCredits, setPatchCredits] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [toolStatus, setToolStatus] = useState<main.ToolStatus | null>(null);
+  const [persianOpts, setPersianOpts] = useState({
+    rtl: true,
+    shaping: true,
+    digits: true,
+    vazirmatn: true,
+  });
+
+  useEffect(() => {
+    GetToolStatus()
+      .then((status) => setToolStatus(status))
+      .catch((err) => console.error("GetToolStatus error:", err));
+  }, []);
 
   const engineInfo = {
     engine: gameInfo ? gameInfo.engine : "---",
     backend: gameInfo ? gameInfo.backend : "---",
     confidence: gameInfo ? (gameInfo.confidence * 100).toFixed(0) + "%" : "---",
-    files: "---"
+    files: translations.length > 0 
+      ? `${translations.length} متن` 
+      : (gameInfo?.evidence?.length ? `${gameInfo.evidence.length} نشانه شناسایی` : "---")
   };
 
   const isDetectionOnly = gameInfo ? ["ue3", "source"].includes(gameInfo.engine.toLowerCase()) : false;
@@ -123,13 +140,13 @@ export default function FarsiForgeDashboard() {
 
   return (
     <div className="min-h-screen p-6 flex items-center justify-center relative overflow-hidden">
-      <div className="absolute inset-0 bg-[url('https://transparenttextures.com/patterns/cubes.png')] opacity-10 pointer-events-none mix-blend-overlay"></div>
+      <div className="absolute inset-0 bg-[radial-gradient(#312e81_1px,transparent_1px)] [background-size:24px_24px] opacity-20 pointer-events-none" />
       
       <div className="max-w-5xl w-full grid grid-cols-1 lg:grid-cols-12 gap-8 z-10">
         
         {/* Sidebar / Info Panel */}
-        <div className="lg:col-span-4 flex flex-col gap-6">
-          <div className="flex items-center gap-4 mb-4">
+        <div className="lg:col-span-4 flex flex-col gap-5">
+          <div className="flex items-center gap-4 mb-2">
             <div className="p-3 bg-primary/10 rounded-2xl border border-primary/20 backdrop-blur-md">
               <Cpu className="w-8 h-8 text-primary" />
             </div>
@@ -140,48 +157,106 @@ export default function FarsiForgeDashboard() {
           </div>
 
           <Card className="bg-zinc-950/40 backdrop-blur-xl border-zinc-800/50 shadow-2xl">
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Box className="w-5 h-5 text-indigo-400" /> 
+            <CardHeader className="py-3 px-4">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Box className="w-4 h-4 text-indigo-400" /> 
                 مشخصات بازی
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex justify-between items-center py-2 border-b border-zinc-800/50">
+            <CardContent className="space-y-3 px-4 pb-4 pt-0 text-sm">
+              <div className="flex justify-between items-center py-1.5 border-b border-zinc-800/50">
                 <span className="text-zinc-400">موتور بازی</span>
                 <Badge variant="outline" className="bg-indigo-500/10 text-indigo-300 border-indigo-500/20">{currentStep !== "detect" ? engineInfo.engine : "---"}</Badge>
               </div>
-              <div className="flex justify-between items-center py-2 border-b border-zinc-800/50">
+              <div className="flex justify-between items-center py-1.5 border-b border-zinc-800/50">
                 <span className="text-zinc-400">پلتفرم پردازشی</span>
-                <span className="font-mono text-zinc-300">{currentStep !== "detect" ? engineInfo.backend : "---"}</span>
+                <span className="font-mono text-zinc-300 text-xs">{currentStep !== "detect" ? engineInfo.backend : "---"}</span>
               </div>
-              <div className="flex justify-between items-center py-2 border-b border-zinc-800/50">
+              <div className="flex justify-between items-center py-1.5 border-b border-zinc-800/50">
                 <span className="text-zinc-400">دقت شناسایی</span>
                 <span className="text-green-400 font-bold">{currentStep !== "detect" ? engineInfo.confidence : "---"}</span>
               </div>
-              <div className="flex justify-between items-center py-2">
-                <span className="text-zinc-400">تعداد فایل‌ها</span>
-                <span className="font-mono text-zinc-300">{currentStep !== "detect" ? engineInfo.files : "---"}</span>
+              <div className="flex justify-between items-center py-1.5">
+                <span className="text-zinc-400">تعداد محتوا</span>
+                <span className="font-mono text-zinc-300 text-xs">{currentStep !== "detect" ? engineInfo.files : "---"}</span>
               </div>
             </CardContent>
           </Card>
 
+          {/* Tools Status Card */}
+          <Card className="bg-zinc-950/40 backdrop-blur-xl border-zinc-800/50 shadow-2xl">
+            <CardHeader className="py-3 px-4">
+              <CardTitle className="text-base flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Wrench className="w-4 h-4 text-emerald-400" />
+                  <span>ابزارهای کمکی</span>
+                </div>
+                {toolStatus && (
+                  <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
+                    سیستم ابزارها
+                  </Badge>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 px-4 pb-4 pt-0 text-xs">
+              {[
+                { name: "موتور fftools", ok: toolStatus?.ff_tools_ok },
+                { name: "آنریل repak", ok: toolStatus?.repak_ok },
+                { name: "آنریل retoc", ok: toolStatus?.retoc_ok },
+                { name: "گودو gdre_tools", ok: toolStatus?.gdre_tools_ok },
+                { name: "محیط Python", ok: toolStatus?.python_ok },
+                { name: "پچ‌ساز (Patcher)", ok: toolStatus?.patcher_ok },
+              ].map((tool) => (
+                <div key={tool.name} className="flex items-center justify-between py-1 border-b border-zinc-900/60 last:border-0">
+                  <span className="text-zinc-400">{tool.name}</span>
+                  {tool.ok ? (
+                    <span className="flex items-center gap-1 text-emerald-400 font-medium">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> آماده
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1 text-zinc-500">
+                      <XCircle className="w-3.5 h-3.5" /> ناموجود
+                    </span>
+                  )}
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+
           <Card className="bg-zinc-950/40 backdrop-blur-xl border-zinc-800/50">
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Settings2 className="w-5 h-5 text-purple-400" />
+            <CardHeader className="py-3 px-4">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Settings2 className="w-4 h-4 text-purple-400" />
                 تنظیمات بومی‌سازی
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
-              {['راست‌چین‌سازی (RTL)', 'اتصال حروف فارسی', 'اعداد فارسی', 'فونت Vazirmatn'].map((setting) => (
-                <div key={setting} className="flex items-center gap-3">
-                  <div className="w-4 h-4 rounded-sm bg-primary border-primary flex items-center justify-center">
-                    <CheckCircle2 className="w-3 h-3 text-primary-foreground" />
+            <CardContent className="space-y-2 px-4 pb-4 pt-0">
+              {[
+                { id: "rtl", label: "راست‌چین‌سازی (RTL)" },
+                { id: "shaping", label: "اتصال حروف فارسی" },
+                { id: "digits", label: "اعداد فارسی" },
+                { id: "vazirmatn", label: "فونت Vazirmatn" },
+              ].map((setting) => {
+                const isChecked = persianOpts[setting.id as keyof typeof persianOpts];
+                return (
+                  <div
+                    key={setting.id}
+                    onClick={() => setPersianOpts((prev) => ({ ...prev, [setting.id]: !prev[setting.id as keyof typeof prev] }))}
+                    className="flex items-center gap-2.5 cursor-pointer select-none py-1 hover:text-white transition-colors"
+                  >
+                    <div
+                      className={`w-4 h-4 rounded-sm border flex items-center justify-center transition-colors ${
+                        isChecked
+                          ? "bg-primary border-primary text-primary-foreground"
+                          : "border-zinc-700 bg-zinc-900 text-transparent"
+                      }`}
+                    >
+                      <CheckCircle2 className="w-3 h-3" />
+                    </div>
+                    <span className="text-xs text-zinc-300">{setting.label}</span>
                   </div>
-                  <span className="text-sm text-zinc-300">{setting}</span>
-                </div>
-              ))}
+                );
+              })}
             </CardContent>
           </Card>
         </div>

@@ -30,9 +30,16 @@ func cliExe() string {
 
 func raceHarnessExe(t *testing.T, cli string) string {
 	t.Helper()
+	winDir := os.Getenv("SystemRoot")
+	if winDir == "" {
+		winDir = os.Getenv("windir")
+	}
+	if winDir == "" {
+		winDir = `C:\Windows`
+	}
 	candidates := []string{
-		`C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe`,
-		`C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe`,
+		filepath.Join(winDir, `Microsoft.NET\Framework64\v4.0.30319\csc.exe`),
+		filepath.Join(winDir, `Microsoft.NET\Framework\v4.0.30319\csc.exe`),
 	}
 	var csc string
 	for _, candidate := range candidates {

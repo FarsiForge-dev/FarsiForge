@@ -45,6 +45,7 @@ type Registry struct {
 	SevenZip  string `json:"seven_zip"` // 7z
 	FontForge string `json:"fontforge"` // FontForge
 	FFTools   string `json:"ff_tools"`  // fftools.exe (FarsiForge native helper)
+	Patcher   string `json:"patcher"`   // FarsiForgePatcher.exe
 
 	// Python
 	Python        string `json:"python"`         // Python executable (verified absolute path)
@@ -93,6 +94,13 @@ func NewRegistry(toolsDir string) (*Registry, error) {
 func resolveToolsDir(toolsDir string) string {
 	if toolsDir != "" {
 		return toolsDir
+	}
+
+	if envDir := os.Getenv("FARSIFORGE_TOOLS_DIR"); envDir != "" && dirExists(envDir) {
+		return envDir
+	}
+	if envDir := os.Getenv("FARISIFORGE_TOOLS_DIR"); envDir != "" && dirExists(envDir) {
+		return envDir
 	}
 
 	// a. Portable install: <exe_dir>\Tools and <exe_dir>\..\Tools
@@ -152,6 +160,13 @@ func (r *Registry) scan() {
 	r.UAssetGUI = findInDir(r.RootDir, "", "UAssetGUI.exe")
 	r.Available["uasset_gui"] = r.UAssetGUI != ""
 
+	// Find repak (Unreal Engine .pak unpacker)
+	r.Repak = findInDir(r.RootDir, "repak", "repak.exe")
+	if r.Repak == "" {
+		r.Repak = findInDir(r.RootDir, "", "repak.exe")
+	}
+	r.Available["repak"] = r.Repak != ""
+
 	// Find retoc (UE5 IoStore .utoc/.ucas unpacker)
 	r.Retoc = findInDir(r.RootDir, "retoc", "retoc.exe")
 	if r.Retoc == "" {
@@ -161,15 +176,27 @@ func (r *Registry) scan() {
 
 	// Find gdre_tools
 	r.GDRETools = findInDir(r.RootDir, "gdre", "gdre_tools.exe")
+	if r.GDRETools == "" {
+		r.GDRETools = findInDir(r.RootDir, "gdre_tools", "gdre_tools.exe")
+	}
+	if r.GDRETools == "" {
+		r.GDRETools = findInDir(r.RootDir, "", "gdre_tools.exe")
+	}
 	r.Available["gdre_tools"] = r.GDRETools != ""
 
 	// Find CodeWalker magic.dat (RPF7 NG key material for modern GTA V
 	// builds, 2024+, that no longer embed the keys in the executable)
 	r.CodeWalkerMagic = findInDir(r.RootDir, "CodeWalker", "magic.dat")
+	if r.CodeWalkerMagic == "" {
+		r.CodeWalkerMagic = findInDir(r.RootDir, "", "magic.dat")
+	}
 	r.Available["codewalker_magic"] = r.CodeWalkerMagic != ""
 
 	// Find Godot engine
 	r.GodotEngine = findInDir(r.RootDir, "godot", ".exe")
+	if r.GodotEngine == "" {
+		r.GodotEngine = findInDir(r.RootDir, "", ".exe")
+	}
 	r.Available["godot_engine"] = r.GodotEngine != ""
 
 	// Find an extracted UndertaleModTool executable.
@@ -180,7 +207,7 @@ func (r *Registry) scan() {
 	r.FontForge = findMatchingExecutable(r.RootDir, "fontforge")
 	r.Available["fontforge"] = r.FontForge != ""
 
-	// Find Vazirmatn font (in zip)
+	// Find Vazirmatn font (in zip or extracted)
 	r.VazirmatnFont = findVazirmatn(r.RootDir)
 	r.Available["vazirmatn_font"] = r.VazirmatnFont != ""
 
@@ -198,6 +225,41 @@ func (r *Registry) scan() {
 		r.FFTools = findInDir(r.RootDir, "", "fftools.exe")
 	}
 	r.Available["fftools"] = r.FFTools != ""
+
+	// Find patcher executable
+	r.Patcher = findInDir(r.RootDir, "patcher", "FarsiForgePatcher.exe")
+	if r.Patcher == "" {
+		r.Patcher = findInDir(r.RootDir, "", "FarsiForgePatcher.exe")
+	}
+	r.Available["patcher"] = r.Patcher != ""
+
+	// Find Il2CppDumper
+	r.Il2CppDumper = findInDir(r.RootDir, "Il2CppDumper", "Il2CppDumper.exe")
+	if r.Il2CppDumper == "" {
+		r.Il2CppDumper = findInDir(r.RootDir, "", "Il2CppDumper.exe")
+	}
+	r.Available["il2cpp_dumper"] = r.Il2CppDumper != ""
+
+	// Find AssetRipper
+	r.AssetRipper = findInDir(r.RootDir, "AssetRipper", "AssetRipper.exe")
+	if r.AssetRipper == "" {
+		r.AssetRipper = findInDir(r.RootDir, "", "AssetRipper.exe")
+	}
+	r.Available["asset_ripper"] = r.AssetRipper != ""
+
+	// Find UABEA
+	r.UABEA = findInDir(r.RootDir, "UABEA", "UABEA.exe")
+	if r.UABEA == "" {
+		r.UABEA = findInDir(r.RootDir, "", "UABEA.exe")
+	}
+	r.Available["uabea"] = r.UABEA != ""
+
+	// Find FModel
+	r.FModel = findInDir(r.RootDir, "FModel", "FModel.exe")
+	if r.FModel == "" {
+		r.FModel = findInDir(r.RootDir, "", "FModel.exe")
+	}
+	r.Available["fmodel"] = r.FModel != ""
 
 	// Check for zip files that contain tools
 	r.checkZips()
@@ -270,6 +332,9 @@ for p in ["UnityPy", "arabic_reshaper", "bidi", "fontTools", "openpyxl"]:
 // `python --version` (or "" if none found).
 func findPython() (string, string) {
 	var candidates []string
+	if configured := os.Getenv("FARSIFORGE_PYTHON"); configured != "" {
+		candidates = append(candidates, configured)
+	}
 	if configured := os.Getenv("FARISIFORGE_PYTHON"); configured != "" {
 		candidates = append(candidates, configured)
 	}
@@ -493,16 +558,16 @@ func (r *Registry) GetPython() string {
 func (r *Registry) GetPath(name string) string {
 	switch strings.ToLower(name) {
 	case "unitypy":
-		return filepath.Join(r.RootDir, "UnityPy") // Usually installed globally or in a local env, this is a placeholder
+		return filepath.Join(r.RootDir, "UnityPy")
 	case "die":
 		return r.DIE
 	case "unreallocres":
 		return r.UnrealLocres
 	case "uassetgui":
 		return r.UAssetGUI
-	case "gdre_tools":
+	case "gdre_tools", "gdre":
 		return r.GDRETools
-	case "codewalker_magic":
+	case "codewalker_magic", "magic.dat":
 		return r.CodeWalkerMagic
 	case "godot":
 		return r.GodotEngine
@@ -510,10 +575,26 @@ func (r *Registry) GetPath(name string) string {
 		return r.UndertaleModTool
 	case "fontforge":
 		return r.FontForge
-	case "7z":
+	case "7z", "sevenzip":
 		return r.SevenZip
-	case "fftools":
+	case "fftools", "ff_tools":
 		return r.FFTools
+	case "repak":
+		return r.Repak
+	case "retoc":
+		return r.Retoc
+	case "patcher", "farsiforgepatcher":
+		return r.Patcher
+	case "il2cpp_dumper", "il2cppdumper":
+		return r.Il2CppDumper
+	case "asset_ripper", "assetripper":
+		return r.AssetRipper
+	case "uabea":
+		return r.UABEA
+	case "fmodel":
+		return r.FModel
+	case "vazirmatn", "vazirmatn_font":
+		return r.VazirmatnFont
 	default:
 		return filepath.Join(r.RootDir, name)
 	}

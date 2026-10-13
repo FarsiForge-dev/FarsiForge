@@ -227,6 +227,12 @@ export namespace main {
 	    unity_py: boolean;
 	    ff_tools: string;
 	    ff_tools_ok: boolean;
+	    repak: string;
+	    repak_ok: boolean;
+	    retoc: string;
+	    retoc_ok: boolean;
+	    gdre_tools: string;
+	    gdre_tools_ok: boolean;
 	    patcher_exe: string;
 	    patcher_ok: boolean;
 	    available: Record<string, boolean>;
@@ -244,6 +250,12 @@ export namespace main {
 	        this.unity_py = source["unity_py"];
 	        this.ff_tools = source["ff_tools"];
 	        this.ff_tools_ok = source["ff_tools_ok"];
+	        this.repak = source["repak"];
+	        this.repak_ok = source["repak_ok"];
+	        this.retoc = source["retoc"];
+	        this.retoc_ok = source["retoc_ok"];
+	        this.gdre_tools = source["gdre_tools"];
+	        this.gdre_tools_ok = source["gdre_tools_ok"];
 	        this.patcher_exe = source["patcher_exe"];
 	        this.patcher_ok = source["patcher_ok"];
 	        this.available = source["available"];

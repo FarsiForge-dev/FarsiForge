@@ -171,9 +171,13 @@ def _run_il2cpp_dumper(
     """Run Il2CppDumper silently and return the output directory path."""
     dumper_exe = None
     if tools_dir:
-        candidate = os.path.join(tools_dir, "Il2CppDumper", "Il2CppDumper.exe")
-        if os.path.isfile(candidate):
-            dumper_exe = candidate
+        for candidate in [
+            os.path.join(tools_dir, "Il2CppDumper", "Il2CppDumper.exe"),
+            os.path.join(tools_dir, "Il2CppDumper.exe"),
+        ]:
+            if os.path.isfile(candidate):
+                dumper_exe = candidate
+                break
     if not dumper_exe:
         script_dir = os.path.dirname(os.path.abspath(__file__))
         candidate = os.path.join(

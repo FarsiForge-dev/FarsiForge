@@ -263,9 +263,13 @@ def _run_il2cpp_dumper(
     # Find Il2CppDumper.exe
     dumper_exe = None
     if tools_dir:
-        candidate = os.path.join(tools_dir, "Il2CppDumper", "Il2CppDumper.exe")
-        if os.path.isfile(candidate):
-            dumper_exe = candidate
+        for candidate in [
+            os.path.join(tools_dir, "Il2CppDumper", "Il2CppDumper.exe"),
+            os.path.join(tools_dir, "Il2CppDumper.exe"),
+        ]:
+            if os.path.isfile(candidate):
+                dumper_exe = candidate
+                break
     if not dumper_exe:
         # Try relative to the script's parent Tools dir
         script_dir = os.path.dirname(os.path.abspath(__file__))

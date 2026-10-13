@@ -27,22 +27,23 @@ if (-not (Test-Path -LiteralPath $binDir)) {
 
 # ---- locate csc.exe ----
 $csc = $null
-$preferred = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+$winDir = if ($env:SystemRoot) { $env:SystemRoot } else { 'C:\Windows' }
+$preferred = Join-Path $winDir 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 if (Test-Path -LiteralPath $preferred) {
     $csc = $preferred
 } else {
-    $found = Get-ChildItem 'C:\Windows\Microsoft.NET\Framework64\v*\csc.exe' -ErrorAction SilentlyContinue |
+    $found = Get-ChildItem (Join-Path $winDir 'Microsoft.NET\Framework64\v*\csc.exe') -ErrorAction SilentlyContinue |
         Sort-Object FullName -Descending | Select-Object -First 1
     if ($found) { $csc = $found.FullName }
 }
 if (-not $csc) {
     # fallback to 32-bit framework
-    $found = Get-ChildItem 'C:\Windows\Microsoft.NET\Framework\v*\csc.exe' -ErrorAction SilentlyContinue |
+    $found = Get-ChildItem (Join-Path $winDir 'Microsoft.NET\Framework\v*\csc.exe') -ErrorAction SilentlyContinue |
         Sort-Object FullName -Descending | Select-Object -First 1
     if ($found) { $csc = $found.FullName }
 }
 if (-not $csc) {
-    throw "csc.exe not found under C:\Windows\Microsoft.NET\Framework64 or Framework"
+    throw "csc.exe not found under $winDir\Microsoft.NET\Framework64 or Framework"
 }
 Write-Host "Using csc: $csc"
 

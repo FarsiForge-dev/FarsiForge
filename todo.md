@@ -6,11 +6,12 @@ Last updated: 2026-10-13
 
 All P0 through P3 core engine, format, security, and persistence milestones have been successfully implemented and verified with 100% passing tests.
 
+- **Release v1.4.0:** Complete dynamic helper tools discovery, hardened paths, offline UI components, and automated packaging of GDRE & Vazirmatn.
 - **Go Test Suite:** `go test ./... -count=1` passed (100% green across main repository and FarsiForgeTools).
 - **Go Build & Vet:** `go build ./...` and `go vet ./...` pass with zero errors/warnings.
 - **Frontend Build:** `npm run build` compiles cleanly.
-- **Knowledge Graph:** Knowledge graph updated with 128 labeled semantic communities.
-- **Automated CI/CD:** GitHub Actions release workflow configured for automated cross-compilation and packaging.
+- **Knowledge Graph:** Knowledge graph updated with 127 labeled semantic communities.
+- **Automated CI/CD:** GitHub Actions release workflow configured for automated cross-compilation, tool fetching, and release packaging.
 
 ---
 

@@ -26,9 +26,14 @@ type App struct {
 }
 
 // NewApp creates a new App application struct. It uses the portable tool
-// registry (NewRegistry with empty string → auto-resolved Tools directory).
+// registry (NewRegistry with empty string → auto-resolved Tools directory,
+// or user-configured tools directory if set in config).
 func NewApp() *App {
-	toolReg, _ := tools.NewRegistry("")
+	toolsDir := ""
+	if cfg, err := core.LoadConfig(core.ConfigPath()); err == nil && cfg.ToolsDir != "" {
+		toolsDir = cfg.ToolsDir
+	}
+	toolReg, _ := tools.NewRegistry(toolsDir)
 	return &App{
 		registry: detection.DefaultRegistry(),
 		toolReg:  toolReg,
@@ -83,6 +88,11 @@ func (a *App) SaveSettings(s *Settings) error {
 	if err != nil {
 		return fmt.Errorf("load config: %v", err)
 	}
+	if s.ToolsDir != cfg.ToolsDir {
+		if newReg, err := tools.NewRegistry(s.ToolsDir); err == nil {
+			a.toolReg = newReg
+		}
+	}
 	cfg.ToolsDir = s.ToolsDir
 	cfg.OutputDir = s.OutputDir
 	cfg.GameSearchPaths = s.GameSearchPaths
@@ -108,18 +118,28 @@ type ToolStatus struct {
 	UnityPy       bool            `json:"unity_py"`
 	FFTools       string          `json:"ff_tools"`
 	FFToolsOK     bool            `json:"ff_tools_ok"`
+	Repak         string          `json:"repak"`
+	RepakOK       bool            `json:"repak_ok"`
+	Retoc         string          `json:"retoc"`
+	RetocOK       bool            `json:"retoc_ok"`
+	GDRETools     string          `json:"gdre_tools"`
+	GDREToolsOK   bool            `json:"gdre_tools_ok"`
 	PatcherExe    string          `json:"patcher_exe"`
 	PatcherOK     bool            `json:"patcher_ok"`
 	Available     map[string]bool `json:"available"`
 }
 
-// GetToolStatus reports the presence/version of python, UnityPy, fftools, and
-// the patcher executable.
+// GetToolStatus reports the presence/version of external tools (Python, UnityPy,
+// fftools, repak, retoc, gdre_tools, patcher).
 func (a *App) GetToolStatus() *ToolStatus {
 	reg := a.toolReg
 	if reg == nil {
 		reg, _ = tools.NewRegistry("")
 		a.toolReg = reg
+	}
+	patcherExe := reg.Patcher
+	if patcherExe == "" {
+		patcherExe = filepath.Join(reg.RootDir, "patcher", "FarsiForgePatcher.exe")
 	}
 	status := &ToolStatus{
 		ToolsDir:      reg.RootDir,
@@ -129,12 +149,16 @@ func (a *App) GetToolStatus() *ToolStatus {
 		UnityPy:       reg.IsAvailable("py_UnityPy"),
 		FFTools:       reg.FFTools,
 		FFToolsOK:     reg.IsAvailable("fftools"),
+		Repak:         reg.Repak,
+		RepakOK:       reg.IsAvailable("repak"),
+		Retoc:         reg.Retoc,
+		RetocOK:       reg.IsAvailable("retoc"),
+		GDRETools:     reg.GDRETools,
+		GDREToolsOK:   reg.IsAvailable("gdre_tools"),
+		PatcherExe:    patcherExe,
+		PatcherOK:     fileExists(patcherExe),
 		Available:     reg.Available,
 	}
-	// Resolve the patcher exe: Tools\patcher\FarsiForgePatcher.exe.
-	patcherExe := filepath.Join(reg.RootDir, "patcher", "FarsiForgePatcher.exe")
-	status.PatcherExe = patcherExe
-	status.PatcherOK = fileExists(patcherExe)
 	return status
 }
 
@@ -385,7 +409,10 @@ func (a *App) BuildPatcher(gameRoot string, credits string) (*BuildPatcherResult
 		reg, _ = tools.NewRegistry("")
 		a.toolReg = reg
 	}
-	patcherExe := filepath.Join(reg.RootDir, "patcher", "FarsiForgePatcher.exe")
+	patcherExe := reg.GetPath("patcher")
+	if patcherExe == "" || !fileExists(patcherExe) {
+		patcherExe = filepath.Join(reg.RootDir, "patcher", "FarsiForgePatcher.exe")
+	}
 
 	// Collect patch targets: each modified file's patched version lives in
 	// the project working directory (injectors write outputs there). We map

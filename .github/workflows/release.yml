@@ -53,12 +53,11 @@ jobs:
           }
 
       - name: Install Frontend Dependencies and Build Assets
+        working-directory: frontend
         shell: pwsh
         run: |
-          cd frontend
           npm ci --legacy-peer-deps
           npm run build
-          cd ..
 
       - name: Build Wails Desktop Application
         shell: pwsh
@@ -84,23 +83,34 @@ jobs:
       - name: Clone and Build FarsiForgeTools (fftools)
         shell: pwsh
         run: |
-          git clone --depth 1 https://github.com/FarsiForge-dev/FarsiForgeTools.git ../FarsiForgeTools
-          New-Item -ItemType Directory -Force -Path build/bin/Tools/fftools | Out-Null
+          if (-not (Test-Path "../FarsiForgeTools")) {
+            git clone --depth 1 https://github.com/FarsiForge-dev/FarsiForgeTools.git ../FarsiForgeTools
+          }
+          $farsiForgeRoot = (Get-Item .).FullName
+          New-Item -ItemType Directory -Force -Path "$farsiForgeRoot/build/bin/Tools/fftools" | Out-Null
           Push-Location ../FarsiForgeTools
-          go build -ldflags="-s -w" -o ../FarsiForge/build/bin/Tools/fftools/fftools.exe ./cmd/fftools
+          go build -ldflags="-s -w" -o "$farsiForgeRoot/build/bin/Tools/fftools/fftools.exe" ./cmd/fftools
           Pop-Location
           Copy-Item build/bin/farsiforge-cli.exe build/bin/Tools/fftools/farsiforge-cli.exe -Force
 
-      - name: Fetch Helper Engine Tools (repak, retoc, CodeWalker)
+      - name: Fetch Helper Engine Tools (repak, retoc, CodeWalker, gdre, vazirmatn)
         shell: pwsh
         run: |
           # 1. repak (Unreal Engine .pak tool from FarsiForge-dev)
           New-Item -ItemType Directory -Force -Path build/bin/Tools/repak | Out-Null
-          Invoke-WebRequest -Uri "https://github.com/FarsiForge-dev/repak/releases/download/v0.2.3/repak.exe" -OutFile "build/bin/Tools/repak/repak.exe"
+          if (Test-Path "Tools/repak/repak.exe") {
+            Copy-Item "Tools/repak/repak.exe" build/bin/Tools/repak/repak.exe -Force
+          } else {
+            Invoke-WebRequest -Uri "https://github.com/FarsiForge-dev/repak/releases/download/v0.2.3/repak.exe" -OutFile "build/bin/Tools/repak/repak.exe"
+          }
 
           # 2. retoc (Unreal Engine 5 IoStore .utoc/.ucas tool from FarsiForge-dev)
           New-Item -ItemType Directory -Force -Path build/bin/Tools/retoc | Out-Null
-          Invoke-WebRequest -Uri "https://github.com/FarsiForge-dev/retoc/releases/download/v0.1.5/retoc.exe" -OutFile "build/bin/Tools/retoc/retoc.exe"
+          if (Test-Path "Tools/retoc/retoc.exe") {
+            Copy-Item "Tools/retoc/retoc.exe" build/bin/Tools/retoc/retoc.exe -Force
+          } else {
+            Invoke-WebRequest -Uri "https://github.com/FarsiForge-dev/retoc/releases/download/v0.1.5/retoc.exe" -OutFile "build/bin/Tools/retoc/retoc.exe"
+          }
 
           # 3. CodeWalker magic.dat (GTA V NG key material from FarsiForge-dev)
           New-Item -ItemType Directory -Force -Path build/bin/Tools/CodeWalker | Out-Null
@@ -108,6 +118,39 @@ jobs:
             Copy-Item "Tools/CodeWalker/magic.dat" build/bin/Tools/CodeWalker/magic.dat -Force
           } else {
             Invoke-WebRequest -Uri "https://github.com/FarsiForge-dev/CodeWalker/releases/download/v1.0.0/magic.dat" -OutFile "build/bin/Tools/CodeWalker/magic.dat"
+          }
+
+          # 4. gdre (Godot RE Tools)
+          New-Item -ItemType Directory -Force -Path build/bin/Tools/gdre | Out-Null
+          if (Test-Path "Tools/gdre/gdre_tools.exe") {
+            Copy-Item "Tools/gdre/*" build/bin/Tools/gdre/ -Force
+          } elseif (Test-Path "Tools/gdre_tools/gdre_tools.exe") {
+            Copy-Item "Tools/gdre_tools/*" build/bin/Tools/gdre/ -Force
+          } else {
+            Write-Host "Downloading gdre (Godot RE Tools)..."
+            $gdreZip = "$env:TEMP/GDRE_tools-windows.zip"
+            try {
+              Invoke-WebRequest -Uri "https://github.com/FarsiForge-dev/gdre/releases/download/v2.7.4/GDRE_tools-v2.7.4-windows.zip" -OutFile $gdreZip -ErrorAction Stop
+            } catch {
+              Write-Host "Falling back to upstream GDRETools..."
+              Invoke-WebRequest -Uri "https://github.com/GDRETools/gdsdecomp/releases/download/v2.7.4/GDRE_tools-v2.7.4-windows.zip" -OutFile $gdreZip
+            }
+            Expand-Archive -Path $gdreZip -DestinationPath build/bin/Tools/gdre -Force
+            Remove-Item $gdreZip -Force
+          }
+
+          # 5. Vazirmatn font
+          New-Item -ItemType Directory -Force -Path build/bin/Tools/vazirmatn | Out-Null
+          if (Test-Path "Tools/vazirmatn/Vazirmatn-Regular.ttf") {
+            Copy-Item "Tools/vazirmatn/*" build/bin/Tools/vazirmatn/ -Force
+          } else {
+            Write-Host "Downloading Vazirmatn Persian font..."
+            try {
+              Invoke-WebRequest -Uri "https://github.com/FarsiForge-dev/vazirmatn/releases/download/v33.003/Vazirmatn-Regular.ttf" -OutFile "build/bin/Tools/vazirmatn/Vazirmatn-Regular.ttf" -ErrorAction Stop
+            } catch {
+              Write-Host "Falling back to upstream rastikerdar/vazirmatn..."
+              Invoke-WebRequest -Uri "https://raw.githubusercontent.com/rastikerdar/vazirmatn/master/fonts/ttf/Vazirmatn-Regular.ttf" -OutFile "build/bin/Tools/vazirmatn/Vazirmatn-Regular.ttf"
+            }
           }
 
       - name: Package Portable Distribution Bundle
