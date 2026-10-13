@@ -2,11 +2,13 @@ package tools
 
 import (
 	"embed"
+	"fmt"
 	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // scriptsFS embeds the Python scripts shipped under ./scripts so that they are
@@ -21,6 +23,13 @@ var scriptsFS embed.FS
 // and returns the full path of the written file. If destDir does not exist it
 // is created. The file is overwritten if it already exists.
 func WriteScript(name, destDir string) (string, error) {
+	// The script name comes from callers, but it is still validated so a
+	// malformed name can never read outside the embedded scripts or write
+	// outside destDir.
+	if name == "" || name != filepath.Base(name) || name == "." || name == ".." ||
+		strings.ContainsAny(name, `/\`) {
+		return "", fmt.Errorf("invalid script name: %q", name)
+	}
 	if destDir != "" {
 		if err := os.MkdirAll(destDir, 0o755); err != nil {
 			return "", err

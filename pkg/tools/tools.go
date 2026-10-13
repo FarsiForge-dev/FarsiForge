@@ -60,6 +60,10 @@ type Registry struct {
 // pythonVerifyTimeout is the max time spent verifying a Python candidate.
 const pythonVerifyTimeout = 10 * time.Second
 
+// EnvPythonOverride lets the user pin the Python interpreter used for external
+// tool scripts. It is shared with pkg/core (core.EnvPythonExe).
+const EnvPythonOverride = "FARISIFORGE_PYTHON"
+
 // NewRegistry creates a tool registry by scanning the tools directory.
 //
 // When toolsDir is empty the directory is resolved automatically in a
@@ -92,7 +96,10 @@ func NewRegistry(toolsDir string) (*Registry, error) {
 // resolveToolsDir resolves the tools directory in a portable manner.
 func resolveToolsDir(toolsDir string) string {
 	if toolsDir != "" {
-		return toolsDir
+		if abs, err := filepath.Abs(toolsDir); err == nil {
+			return abs
+		}
+		return filepath.Clean(toolsDir)
 	}
 
 	// a. Portable install: <exe_dir>\Tools and <exe_dir>\..\Tools
@@ -173,7 +180,7 @@ func (r *Registry) scan() {
 	r.Available["godot_engine"] = r.GodotEngine != ""
 
 	// Find an extracted UndertaleModTool executable.
-	r.UndertaleModTool = findInSubdirectories(r.RootDir, ".exe")
+	r.UndertaleModTool = findInSubdirectories(r.RootDir, "UndertaleModTool.exe")
 	r.Available["undertale_mod_tool"] = r.UndertaleModTool != ""
 
 	// Find FontForge
@@ -270,7 +277,7 @@ for p in ["UnityPy", "arabic_reshaper", "bidi", "fontTools", "openpyxl"]:
 // `python --version` (or "" if none found).
 func findPython() (string, string) {
 	var candidates []string
-	if configured := os.Getenv("FARISIFORGE_PYTHON"); configured != "" {
+	if configured := os.Getenv(EnvPythonOverride); configured != "" {
 		candidates = append(candidates, configured)
 	}
 
@@ -299,6 +306,7 @@ func findPython() (string, string) {
 	}
 
 	for _, c := range candidates {
+		c = findExecutable(c)
 		if c == "" || !fileExists(c) {
 			continue
 		}
@@ -433,8 +441,8 @@ func dirExists(path string) bool {
 }
 
 func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
 }
 
 // Summary returns a human-readable summary of available tools.
@@ -473,7 +481,7 @@ func (r *Registry) IsAvailable(name string) bool {
 	return r.Available[name]
 }
 
-// EnsureAvailable panics if a required tool is not available.
+// EnsureAvailable returns an error when a required tool is not available.
 func (r *Registry) EnsureAvailable(name string) error {
 	if !r.IsAvailable(name) {
 		return fmt.Errorf("required tool not available: %s", name)
@@ -481,12 +489,27 @@ func (r *Registry) EnsureAvailable(name string) error {
 	return nil
 }
 
-// GetPython returns the path to the Python executable.
+// GetPython returns the path to the Python executable. When discovery found
+// nothing it falls back to the configured override (FARISIFORGE_PYTHON) or a
+// platform-appropriate interpreter name instead of a hardcoded "python",
+// which does not exist on most Unix systems.
 func (r *Registry) GetPython() string {
 	if r.Python != "" {
 		return r.Python
 	}
-	return "python"
+	if configured := os.Getenv(EnvPythonOverride); configured != "" {
+		return configured
+	}
+	return defaultPythonName()
+}
+
+// defaultPythonName returns the conventional Python executable name for the
+// current platform.
+func defaultPythonName() string {
+	if isWindows {
+		return "python"
+	}
+	return "python3"
 }
 
 // GetPath returns the path for a given tool name.
@@ -515,6 +538,14 @@ func (r *Registry) GetPath(name string) string {
 	case "fftools":
 		return r.FFTools
 	default:
-		return filepath.Join(r.RootDir, name)
+		// Callers may pass a path fragment relative to the tools root (for
+		// example "CodeWalker/magic.dat"). Reject absolute paths and any
+		// fragment that would escape RootDir.
+		cleaned := filepath.Clean(filepath.FromSlash(name))
+		if filepath.IsAbs(cleaned) || cleaned == ".." ||
+			strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+			return ""
+		}
+		return filepath.Join(r.RootDir, cleaned)
 	}
 }

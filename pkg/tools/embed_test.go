@@ -24,3 +24,23 @@ func TestWriteUnityScriptIncludesRawFieldHelper(t *testing.T) {
 		})
 	}
 }
+
+func TestWriteScriptRejectsInvalidNames(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	for _, name := range []string{"", ".", "..", "../extract.py", "sub/extract.py", `sub\extract.py`} {
+		if _, err := WriteScript(name, dir); err == nil {
+			t.Errorf("WriteScript(%q) = nil error, want a validation error", name)
+		}
+	}
+
+	// A valid name still works and lands directly inside destDir.
+	path, err := WriteScript("extract.py", dir)
+	if err != nil {
+		t.Fatalf("WriteScript(extract.py) failed: %v", err)
+	}
+	if filepath.Dir(path) != dir {
+		t.Errorf("WriteScript wrote to %q, want it inside %q", path, dir)
+	}
+}
