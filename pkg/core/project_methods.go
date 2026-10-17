@@ -144,6 +144,17 @@ func (p *Project) SetTranslation(id, translation string, status Status) error {
 	return fmt.Errorf("entry not found: %s", id)
 }
 
+// HasEntry returns true if the project contains an entry with the given ID.
+// It is safe to call from import validation without mutating project state.
+func (p *Project) HasEntry(id string) bool {
+	for i := range p.Entries {
+		if p.Entries[i].ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 // ImportTranslations merges translations from a map of source → translation.
 // Each merged entry gets automatic QA notes, same as SetTranslation.
 func (p *Project) ImportTranslations(translations map[string]string) int {

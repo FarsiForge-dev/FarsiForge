@@ -5,7 +5,9 @@
 package validate
 
 import (
+	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 
 	"farsiforge/pkg/core"
@@ -96,23 +98,37 @@ func compareMatches(a, b map[string]int) bool {
 	return true
 }
 
+// fmtMatches formats source vs translated match maps for diagnostic output.
+// Ordering is deterministic (sorted by key) so test assertions are stable.
 func fmtMatches(src, tr map[string]int) string {
 	var parts []string
 	parts = append(parts, "Source:")
-	for k, c := range src {
-		parts = append(parts, k+"(x"+string(rune(c+'0'))+")")
+	srcKeys := sortedKeys(src)
+	for _, k := range srcKeys {
+		// Use Sprintf — string(rune(c+'0')) only works for single digits.
+		parts = append(parts, fmt.Sprintf("%s(x%d)", k, src[k]))
 	}
 	if len(src) == 0 {
 		parts = append(parts, "none")
 	}
 
 	parts = append(parts, "| Translated:")
-	for k, c := range tr {
-		parts = append(parts, k+"(x"+string(rune(c+'0'))+")")
+	trKeys := sortedKeys(tr)
+	for _, k := range trKeys {
+		parts = append(parts, fmt.Sprintf("%s(x%d)", k, tr[k]))
 	}
 	if len(tr) == 0 {
 		parts = append(parts, "none")
 	}
 
 	return strings.Join(parts, " ")
+}
+
+func sortedKeys(m map[string]int) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
