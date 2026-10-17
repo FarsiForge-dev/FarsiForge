@@ -15,14 +15,36 @@ import {
   Database,
   Languages,
   Code2,
-  Wrench
+  Wrench,
+  Download,
+  Upload,
+  Save,
+  ChevronLeft,
+  ChevronRight,
+  AlertTriangle,
+  RotateCcw
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { SelectDirectory, DetectEngine, Extract, GetProject, SaveTranslations, Inject, BuildPatcher, GetToolStatus } from "../../wailsjs/go/main/App";
+import { 
+  SelectDirectory, 
+  DetectEngine, 
+  Extract, 
+  GetProject, 
+  SaveTranslations, 
+  Inject, 
+  BuildPatcher, 
+  GetToolStatus,
+  ExportTranslations,
+  ImportTranslations,
+  SelectSaveFile,
+  SelectOpenFile,
+  SavePersianOptions,
+  ValidateProject
+} from "../../wailsjs/go/main/App";
 import { core, main } from "../../wailsjs/go/models";
 
 type Step = "detect" | "extract" | "translate" | "inject" | "patch" | "success";
@@ -38,7 +60,9 @@ export default function FarsiForgeDashboard() {
   const [patchCredits, setPatchCredits] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [currentPage, setCurrentPage] = useState(1);
   const [toolStatus, setToolStatus] = useState<main.ToolStatus | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   const [persianOpts, setPersianOpts] = useState({
     rtl: true,
     shaping: true,
@@ -89,9 +113,93 @@ export default function FarsiForgeDashboard() {
       });
   }, [translations, searchQuery, statusFilter]);
 
-  // Cap the rendered list so huge projects (100k+ entries) stay responsive.
-  const MAX_VISIBLE = 200;
-  const visibleEntries = filteredEntries.slice(0, MAX_VISIBLE);
+  // Reset page when search or filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, statusFilter]);
+
+  const qaIssuesCount = useMemo(() => {
+    return translations.filter((t) => (t.notes || "").trim() !== "").length;
+  }, [translations]);
+
+  // Paginate filtered entries (50 per page) so huge projects (100k+ entries) remain fully accessible and smooth.
+  const PAGE_SIZE = 50;
+  const totalPages = Math.max(1, Math.ceil(filteredEntries.length / PAGE_SIZE));
+  const visibleEntries = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredEntries.slice(start, start + PAGE_SIZE);
+  }, [filteredEntries, currentPage]);
+
+  const handleTogglePersian = async (key: string) => {
+    const next = { ...persianOpts, [key]: !persianOpts[key as keyof typeof persianOpts] };
+    setPersianOpts(next);
+    if (gameInfo?.game_root) {
+      try {
+        await SavePersianOptions(gameInfo.game_root, {
+          bidi_reorder: next.rtl,
+          reshape: next.shaping,
+          persian_digits: next.digits,
+          fix_yeh: true,
+          convert_punct: true,
+          drop_diacritics: false,
+        } as any);
+      } catch (e) {
+        console.error("SavePersianOptions error:", e);
+      }
+    }
+  };
+
+  const handleExport = async () => {
+    if (!gameInfo?.game_root) return;
+    try {
+      const defaultName = `${gameInfo.game_name || "game"}_translations.xlsx`;
+      const path = await SelectSaveFile(defaultName);
+      if (!path) return;
+      await ExportTranslations(gameInfo.game_root, path);
+      alert(`فایل ترجمه با موفقیت ذخیره شد:\n${path}`);
+    } catch (e) {
+      console.error(e);
+      alert(`خطا در صدور فایل: ${e}`);
+    }
+  };
+
+  const handleImport = async () => {
+    if (!gameInfo?.game_root) return;
+    try {
+      const path = await SelectOpenFile();
+      if (!path) return;
+      const res = await ImportTranslations(gameInfo.game_root, path);
+      const proj = await GetProject(gameInfo.game_root);
+      setTranslations(proj.entries || []);
+      let msg = `عملیات ورود فایل انجام شد:\n• اعمال‌شده: ${res.Accepted}\n• نادیده‌گرفته‌شده: ${res.Skipped}\n• ردشده: ${res.Rejected}`;
+      if (res.Errors && res.Errors.length > 0) {
+        msg += `\n\nخطاها و هشدارهای اعتبارسنجی:\n` + res.Errors.slice(0, 5).join("\n");
+        if (res.Errors.length > 5) {
+          msg += `\n... و ${res.Errors.length - 5} خطای دیگر`;
+        }
+      }
+      alert(msg);
+    } catch (e) {
+      console.error(e);
+      alert(`خطا در ورود فایل: ${e}`);
+    }
+  };
+
+  const handleSaveAll = async () => {
+    if (!gameInfo?.game_root) return;
+    setIsSaving(true);
+    try {
+      await SaveTranslations(gameInfo.game_root, translations);
+      const proj = await GetProject(gameInfo.game_root);
+      setTranslations(proj.entries || []);
+      alert("تمام ترجمه‌ها و یادداشت‌های QA با موفقیت ذخیره شدند.");
+    } catch (e) {
+      console.error(e);
+      alert(`خطا در ذخیره: ${e}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const handleSelectDir = async () => {
     try {
@@ -241,7 +349,7 @@ export default function FarsiForgeDashboard() {
                 return (
                   <div
                     key={setting.id}
-                    onClick={() => setPersianOpts((prev) => ({ ...prev, [setting.id]: !prev[setting.id as keyof typeof prev] }))}
+                    onClick={() => handleTogglePersian(setting.id)}
                     className="flex items-center gap-2.5 cursor-pointer select-none py-1 hover:text-white transition-colors"
                   >
                     <div
@@ -367,40 +475,91 @@ export default function FarsiForgeDashboard() {
                   <motion.div 
                     key="translate"
                     initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
-                    className="w-full h-full flex flex-col space-y-6"
+                    className="w-full h-full flex flex-col space-y-4"
                   >
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 bg-blue-500/10 rounded-lg border border-blue-500/20">
-                        <Languages className="w-6 h-6 text-blue-400" />
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-blue-500/10 rounded-lg border border-blue-500/20">
+                          <Languages className="w-6 h-6 text-blue-400" />
+                        </div>
+                        <div>
+                          <h2 className="text-xl font-bold text-white">میز کار ترجمه</h2>
+                          <p className="text-xs text-zinc-400">ویرایش، اعتبارسنجی خودکار و تبادل فایل‌های ترجمه</p>
+                        </div>
                       </div>
-                      <h2 className="text-xl font-bold text-white">مدیریت ترجمه‌ها</h2>
+                      
+                      {/* Action buttons: Export, Import, Save */}
+                      <div className="flex items-center gap-2">
+                        <Button 
+                          onClick={handleExport} 
+                          variant="outline" 
+                          size="sm" 
+                          className="h-9 px-3 bg-zinc-900 border-zinc-700 text-zinc-200 hover:bg-zinc-800 flex items-center gap-1.5"
+                          title="خروجی به اکسل یا CSV برای ترجمه خارج از برنامه"
+                        >
+                          <Download className="w-4 h-4 text-emerald-400" />
+                          <span>خروجی Excel/CSV</span>
+                        </Button>
+                        <Button 
+                          onClick={handleImport} 
+                          variant="outline" 
+                          size="sm" 
+                          className="h-9 px-3 bg-zinc-900 border-zinc-700 text-zinc-200 hover:bg-zinc-800 flex items-center gap-1.5"
+                          title="ورود فایل ترجمه‌شده از اکسل یا CSV"
+                        >
+                          <Upload className="w-4 h-4 text-indigo-400" />
+                          <span>ورود Excel/CSV</span>
+                        </Button>
+                        <Button 
+                          onClick={handleSaveAll} 
+                          disabled={isSaving}
+                          size="sm" 
+                          className="h-9 px-3 bg-zinc-800 hover:bg-zinc-700 text-white flex items-center gap-1.5"
+                          title="ذخیره تغییرات در دیتابیس پروژه"
+                        >
+                          <Save className="w-4 h-4 text-amber-400" />
+                          <span>{isSaving ? "در حال ذخیره..." : "ذخیره تغییرات"}</span>
+                        </Button>
+                      </div>
                     </div>
 
                     <div className="flex gap-2 items-center">
                       <Input
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="bg-zinc-900 border-zinc-700 text-sm text-zinc-200"
-                        placeholder="جستجو در متن‌ها (متن، ترجمه، فایل، شناسه، یادداشت)..."
+                        className="bg-zinc-900 border-zinc-700 text-sm text-zinc-200 flex-1"
+                        placeholder="جستجو در متن‌ها (متن اصلی، ترجمه، فایل، شناسه، یادداشت)..."
                       />
                       <select
                         value={statusFilter}
                         onChange={(e) => setStatusFilter(e.target.value)}
                         className="bg-zinc-900 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-200 shrink-0"
                       >
-                        <option value="all">همه</option>
+                        <option value="all">همه وضعیت‌ها</option>
                         <option value="untranslated">بی‌ترجمه</option>
                         <option value="translated">ترجمه‌شده</option>
                         <option value="approved">تأییدشده</option>
                         <option value="skipped">ردشده</option>
-                        <option value="qa">هشدار QA</option>
+                        <option value="qa">هشدار QA ({qaIssuesCount})</option>
                       </select>
                     </div>
-                    <p className="text-xs text-zinc-500">
-                      نمایش {visibleEntries.length} از {filteredEntries.length} مورد
-                      {filteredEntries.length !== translations.length && ` (کل: ${translations.length})`}
-                      {filteredEntries.length > MAX_VISIBLE && " — برای دیدن موارد بیشتر، جستجو را دقیق‌تر کنید"}
-                    </p>
+
+                    <div className="flex justify-between items-center text-xs text-zinc-500">
+                      <div>
+                        نمایش {filteredEntries.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1} تا {Math.min(currentPage * PAGE_SIZE, filteredEntries.length)} از {filteredEntries.length} مورد
+                        {filteredEntries.length !== translations.length && ` (کل دیتابیس: ${translations.length})`}
+                      </div>
+                      {qaIssuesCount > 0 && (
+                        <Badge 
+                          onClick={() => setStatusFilter("qa")}
+                          variant="outline" 
+                          className="cursor-pointer bg-amber-500/10 text-amber-300 border-amber-500/30 flex items-center gap-1 hover:bg-amber-500/20"
+                        >
+                          <AlertTriangle className="w-3 h-3" />
+                          {qaIssuesCount} خطای متغیر/ساختار در ترجمه
+                        </Badge>
+                      )}
+                    </div>
 
                     <div className="flex-1 bg-zinc-900/50 rounded-xl border border-zinc-800 p-4 space-y-3 overflow-y-auto max-h-[300px]">
                       {visibleEntries.length === 0 && <p className="text-center text-zinc-500 py-10">متنی یافت نشد.</p>}
@@ -445,16 +604,54 @@ export default function FarsiForgeDashboard() {
                         </div>
                       ))}
                     </div>
-                    
-                    <div className="flex justify-between items-center pt-2">
-                      {isExtractOnly ? (
-                        <span className="text-xs text-amber-400">
-                          ℹ موتور {engineInfo.engine} در وضعیت فقط-استخراج (Extract-Only) است؛ تزریق خودکار غیرفعال است.
+
+                    {/* Pagination Controls */}
+                    <div className="flex justify-between items-center py-1">
+                      <div className="flex items-center gap-1">
+                        <Button 
+                          onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} 
+                          disabled={currentPage <= 1}
+                          variant="outline" 
+                          size="sm" 
+                          className="h-8 px-2 bg-zinc-900 border-zinc-800 text-zinc-300"
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                          <span>قبلی</span>
+                        </Button>
+                        <span className="text-xs text-zinc-400 px-2 font-mono">
+                          صفحه {currentPage} از {totalPages}
                         </span>
-                      ) : <span />}
-                      <Button onClick={() => handleNextStep("inject")} disabled={isExtractOnly} size="lg" className="bg-blue-600 hover:bg-blue-700">
-                        {isExtractOnly ? "تزریق در دسترس نیست" : "آماده‌سازی برای تزریق"}
-                      </Button>
+                        <Button 
+                          onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} 
+                          disabled={currentPage >= totalPages}
+                          variant="outline" 
+                          size="sm" 
+                          className="h-8 px-2 bg-zinc-900 border-zinc-800 text-zinc-300"
+                        >
+                          <span>بعدی</span>
+                          <ChevronLeft className="w-4 h-4" />
+                        </Button>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <Button 
+                          onClick={() => setCurrentStep("extract")} 
+                          variant="ghost" 
+                          size="sm"
+                          className="text-zinc-400 hover:text-white flex items-center gap-1"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          <span>بازگشت</span>
+                        </Button>
+                        {isExtractOnly ? (
+                          <span className="text-xs text-amber-400">
+                            ℹ موتور {engineInfo.engine} در وضعیت فقط-استخراج است؛ تزریق غیرفعال است.
+                          </span>
+                        ) : null}
+                        <Button onClick={() => handleNextStep("inject")} disabled={isExtractOnly} size="lg" className="bg-blue-600 hover:bg-blue-700">
+                          {isExtractOnly ? "تزریق در دسترس نیست" : "آماده‌سازی برای تزریق"}
+                        </Button>
+                      </div>
                     </div>
                   </motion.div>
                 )}

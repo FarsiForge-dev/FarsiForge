@@ -10,6 +10,10 @@ export function DetectEngine(arg1) {
   return window['go']['main']['App']['DetectEngine'](arg1);
 }
 
+export function ExportTranslations(arg1, arg2) {
+  return window['go']['main']['App']['ExportTranslations'](arg1, arg2);
+}
+
 export function Extract(arg1) {
   return window['go']['main']['App']['Extract'](arg1);
 }
@@ -26,6 +30,10 @@ export function GetToolStatus() {
   return window['go']['main']['App']['GetToolStatus']();
 }
 
+export function ImportTranslations(arg1, arg2) {
+  return window['go']['main']['App']['ImportTranslations'](arg1, arg2);
+}
+
 export function Inject(arg1) {
   return window['go']['main']['App']['Inject'](arg1);
 }
@@ -36,6 +44,10 @@ export function InstallPythonPackage(arg1) {
 
 export function LaunchGame(arg1, arg2) {
   return window['go']['main']['App']['LaunchGame'](arg1, arg2);
+}
+
+export function SavePersianOptions(arg1, arg2) {
+  return window['go']['main']['App']['SavePersianOptions'](arg1, arg2);
 }
 
 export function SaveSettings(arg1) {
@@ -52,4 +64,16 @@ export function SearchEntries(arg1, arg2, arg3) {
 
 export function SelectDirectory() {
   return window['go']['main']['App']['SelectDirectory']();
+}
+
+export function SelectOpenFile() {
+  return window['go']['main']['App']['SelectOpenFile']();
+}
+
+export function SelectSaveFile(arg1) {
+  return window['go']['main']['App']['SelectSaveFile'](arg1);
+}
+
+export function ValidateProject(arg1) {
+  return window['go']['main']['App']['ValidateProject'](arg1);
 }

@@ -10,11 +10,13 @@ import (
 
 	"farsiforge/pkg/core"
 	"farsiforge/pkg/detection"
+	"farsiforge/pkg/exchange"
 	"farsiforge/pkg/extract"
 	"farsiforge/pkg/inject"
 	"farsiforge/pkg/installer"
 	"farsiforge/pkg/textfilter"
 	"farsiforge/pkg/tools"
+	"farsiforge/pkg/validate"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -80,6 +82,7 @@ func (a *App) GetSettings() (*Settings, error) {
 }
 
 // SaveSettings persists the given settings via the core config API.
+// Validates custom paths and tool registry before persisting.
 func (a *App) SaveSettings(s *Settings) error {
 	if s == nil {
 		return fmt.Errorf("settings are nil")
@@ -88,11 +91,23 @@ func (a *App) SaveSettings(s *Settings) error {
 	if err != nil {
 		return fmt.Errorf("load config: %v", err)
 	}
-	if s.ToolsDir != cfg.ToolsDir {
-		if newReg, err := tools.NewRegistry(s.ToolsDir); err == nil {
-			a.toolReg = newReg
+
+	// Validate custom tools directory and ensure registry initializes cleanly
+	if s.ToolsDir != "" && s.ToolsDir != cfg.ToolsDir {
+		newReg, err := tools.NewRegistry(s.ToolsDir)
+		if err != nil {
+			return fmt.Errorf("failed to initialize tool registry for path %q: %w", s.ToolsDir, err)
+		}
+		a.toolReg = newReg
+	}
+
+	// Validate output directory
+	if s.OutputDir != "" {
+		if err := os.MkdirAll(s.OutputDir, 0755); err != nil {
+			return fmt.Errorf("invalid output directory %q: %w", s.OutputDir, err)
 		}
 	}
+
 	cfg.ToolsDir = s.ToolsDir
 	cfg.OutputDir = s.OutputDir
 	cfg.GameSearchPaths = s.GameSearchPaths
@@ -277,6 +292,22 @@ func (a *App) Inject(info *core.GameInfo) (int, error) {
 		return 0, fmt.Errorf("clear previous staged injection state: %w", err)
 	}
 
+	// Validate project translations before injecting: block on hard errors.
+	validator := validate.New()
+	valErrs := validator.Validate(proj.Entries)
+	hardErrors := validate.FilterBySeverity(valErrs, core.SevError)
+	if len(hardErrors) > 0 {
+		var sample []string
+		for i, he := range hardErrors {
+			if i >= 5 {
+				sample = append(sample, fmt.Sprintf("... and %d more hard error(s)", len(hardErrors)-5))
+				break
+			}
+			sample = append(sample, fmt.Sprintf("[%s] %s: %s", he.EntryID, he.Type, he.Message))
+		}
+		return 0, fmt.Errorf("injection blocked: %d hard validation error(s) found:\n%s", len(hardErrors), strings.Join(sample, "\n"))
+	}
+
 	opts := proj.PersianOpts
 	if opts == (core.PersianOptions{}) {
 		opts = core.DefaultPersianOptions()
@@ -291,6 +322,30 @@ func (a *App) Inject(info *core.GameInfo) (int, error) {
 	}
 
 	return len(modified), nil
+}
+
+// ValidateProject runs the validation pipeline on all project entries.
+func (a *App) ValidateProject(gameRoot string) ([]core.ValidationError, error) {
+	proj, err := core.LoadGameProject(gameRoot)
+	if err != nil {
+		return nil, fmt.Errorf("load project: %w", err)
+	}
+	validator := validate.New()
+	return validator.Validate(proj.Entries), nil
+}
+
+// SavePersianOptions persists the user's Persian processing options for the project.
+func (a *App) SavePersianOptions(gameRoot string, opts core.PersianOptions) error {
+	proj, err := core.LoadGameProject(gameRoot)
+	if err != nil {
+		return fmt.Errorf("load project: %w", err)
+	}
+	proj.PersianOpts = opts
+	projectPath, err := core.ProjectFilePath(gameRoot)
+	if err != nil {
+		return err
+	}
+	return proj.Save(projectPath)
 }
 
 // LaunchGame starts the game executable silently (no console window flash).
@@ -312,6 +367,59 @@ func (a *App) SelectDirectory() (string, error) {
 	return wailsruntime.OpenDirectoryDialog(a.ctx, wailsruntime.OpenDialogOptions{
 		Title: "انتخاب پوشه بازی",
 	})
+}
+
+// SelectSaveFile opens a file save dialog for exporting.
+func (a *App) SelectSaveFile(defaultFilename string) (string, error) {
+	return wailsruntime.SaveFileDialog(a.ctx, wailsruntime.SaveDialogOptions{
+		Title:           "ذخیره فایل ترجمه",
+		DefaultFilename: defaultFilename,
+		Filters: []wailsruntime.FileFilter{
+			{DisplayName: "Excel Files (*.xlsx)", Pattern: "*.xlsx"},
+			{DisplayName: "CSV Files (*.csv)", Pattern: "*.csv"},
+		},
+	})
+}
+
+// SelectOpenFile opens a file selection dialog for importing.
+func (a *App) SelectOpenFile() (string, error) {
+	return wailsruntime.OpenFileDialog(a.ctx, wailsruntime.OpenDialogOptions{
+		Title: "انتخاب فایل ترجمه برای ورود",
+		Filters: []wailsruntime.FileFilter{
+			{DisplayName: "Supported Exchange Files (*.xlsx; *.csv)", Pattern: "*.xlsx;*.csv"},
+			{DisplayName: "Excel Files (*.xlsx)", Pattern: "*.xlsx"},
+			{DisplayName: "CSV Files (*.csv)", Pattern: "*.csv"},
+		},
+	})
+}
+
+// ExportTranslations exports the project translations to CSV or XLSX.
+func (a *App) ExportTranslations(gameRoot, outputPath string) error {
+	proj, err := core.LoadGameProject(gameRoot)
+	if err != nil {
+		return fmt.Errorf("load project: %w", err)
+	}
+	return exchange.Export(proj, outputPath)
+}
+
+// ImportTranslations imports translations from CSV or XLSX atomically.
+func (a *App) ImportTranslations(gameRoot, inputPath string) (*exchange.ImportResult, error) {
+	proj, err := core.LoadGameProject(gameRoot)
+	if err != nil {
+		return nil, fmt.Errorf("load project: %w", err)
+	}
+	res, err := exchange.Import(proj, inputPath)
+	if err != nil {
+		return &res, err
+	}
+	projectPath, err := core.ProjectFilePath(gameRoot)
+	if err != nil {
+		return &res, err
+	}
+	if err := proj.Save(projectPath); err != nil {
+		return &res, fmt.Errorf("save project after import: %w", err)
+	}
+	return &res, nil
 }
 
 // GetProject loads the project

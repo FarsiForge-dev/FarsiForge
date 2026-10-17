@@ -90,6 +90,26 @@ export namespace core {
 	        this.max_length = source["max_length"];
 	    }
 	}
+	export class ValidationError {
+	    entry_id: string;
+	    type: string;
+	    message: string;
+	    severity: string;
+	    details?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ValidationError(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.entry_id = source["entry_id"];
+	        this.type = source["type"];
+	        this.message = source["message"];
+	        this.severity = source["severity"];
+	        this.details = source["details"];
+	    }
+	}
 	export class Project {
 	    name: string;
 	    game_name: string;
@@ -262,5 +282,26 @@ export namespace main {
 	    }
 	}
 
+}
+
+export namespace exchange {
+	export class ImportResult {
+	    Accepted: number;
+	    Skipped: number;
+	    Rejected: number;
+	    Errors: string[];
+
+	    static createFrom(source: any = {}) {
+	        return new ImportResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Accepted = source["Accepted"];
+	        this.Skipped = source["Skipped"];
+	        this.Rejected = source["Rejected"];
+	        this.Errors = source["Errors"];
+	    }
+	}
 }
 

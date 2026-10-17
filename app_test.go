@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"farsiforge/pkg/core"
@@ -288,3 +289,167 @@ func TestEndToEndTranslateBuildApplyAndUninstall(t *testing.T) {
 		t.Fatalf("uninstall restored %q, want %q", restored, original)
 	}
 }
+
+func TestInjectBlocksOnHardValidationErrors(t *testing.T) {
+	gameRoot := t.TempDir()
+	store := t.TempDir()
+	t.Setenv(core.EnvProjectsDir, store)
+	localePath := filepath.Join(gameRoot, "locale.ini")
+	if err := os.WriteFile(localePath, []byte("title=Hello {player}!\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	app := &App{}
+	info := &core.GameInfo{GameRoot: gameRoot, GameName: "Sample", Engine: "generic"}
+	if _, err := app.Extract(info); err != nil {
+		t.Fatal(err)
+	}
+
+	project, err := app.GetProject(gameRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Missing placeholder: {player} is missing from translation
+	project.Entries[0].Translation = "سلام بدون متغیر!"
+	project.Entries[0].Status = core.StatusTranslated
+	if err := app.SaveTranslations(gameRoot, project.Entries); err != nil {
+		t.Fatal(err)
+	}
+
+	// Inject MUST be blocked
+	_, err = app.Inject(info)
+	if err == nil {
+		t.Fatal("expected Inject to fail with hard validation error, got nil")
+	}
+	if !strings.Contains(err.Error(), "injection blocked") || !strings.Contains(err.Error(), "hard validation error") {
+		t.Fatalf("unexpected error message: %v", err)
+	}
+
+	// Now fix the placeholder
+	project.Entries[0].Translation = "سلام {player}!"
+	if err := app.SaveTranslations(gameRoot, project.Entries); err != nil {
+		t.Fatal(err)
+	}
+
+	// Inject should now succeed
+	count, err := app.Inject(info)
+	if err != nil {
+		t.Fatalf("expected Inject to succeed with valid placeholder, got: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("modified count = %d, want 1", count)
+	}
+}
+
+func TestValidateProjectAPI(t *testing.T) {
+	gameRoot := t.TempDir()
+	t.Setenv(core.EnvProjectsDir, t.TempDir())
+	localePath := filepath.Join(gameRoot, "locale.ini")
+	if err := os.WriteFile(localePath, []byte("msg=Gold: %d\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	app := &App{}
+	info := &core.GameInfo{GameRoot: gameRoot, GameName: "Sample", Engine: "generic"}
+	if _, err := app.Extract(info); err != nil {
+		t.Fatal(err)
+	}
+
+	project, err := app.GetProject(gameRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Add bad translation
+	project.Entries[0].Translation = "طلا: بدون قالب"
+	project.Entries[0].Status = core.StatusTranslated
+	if err := app.SaveTranslations(gameRoot, project.Entries); err != nil {
+		t.Fatal(err)
+	}
+
+	valErrs, err := app.ValidateProject(gameRoot)
+	if err != nil {
+		t.Fatalf("ValidateProject failed: %v", err)
+	}
+	if len(valErrs) == 0 {
+		t.Fatal("expected validation errors, got none")
+	}
+	if valErrs[0].Severity != core.SevError {
+		t.Errorf("severity = %v, want SevError", valErrs[0].Severity)
+	}
+}
+
+func TestExportAndImportTranslations(t *testing.T) {
+	gameRoot := t.TempDir()
+	t.Setenv(core.EnvProjectsDir, t.TempDir())
+	localePath := filepath.Join(gameRoot, "locale.ini")
+	if err := os.WriteFile(localePath, []byte("item1=Sword\nitem2=Shield\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	app := &App{}
+	info := &core.GameInfo{GameRoot: gameRoot, GameName: "Sample", Engine: "generic"}
+	if _, err := app.Extract(info); err != nil {
+		t.Fatal(err)
+	}
+
+	// Export to CSV
+	csvPath := filepath.Join(t.TempDir(), "translations.csv")
+	if err := app.ExportTranslations(gameRoot, csvPath); err != nil {
+		t.Fatalf("ExportTranslations CSV failed: %v", err)
+	}
+
+	// Verify CSV file exists and has content
+	if _, err := os.Stat(csvPath); err != nil {
+		t.Fatalf("exported CSV missing: %v", err)
+	}
+
+	// Export to XLSX
+	xlsxPath := filepath.Join(t.TempDir(), "translations.xlsx")
+	if err := app.ExportTranslations(gameRoot, xlsxPath); err != nil {
+		t.Fatalf("ExportTranslations XLSX failed: %v", err)
+	}
+	if _, err := os.Stat(xlsxPath); err != nil {
+		t.Fatalf("exported XLSX missing: %v", err)
+	}
+
+	// Import the exported file back
+	res, err := app.ImportTranslations(gameRoot, csvPath)
+	if err != nil {
+		t.Fatalf("ImportTranslations failed: %v", err)
+	}
+	if res.Rejected != 0 {
+		t.Fatalf("rejected = %d, want 0", res.Rejected)
+	}
+}
+
+func TestSavePersianOptions(t *testing.T) {
+	gameRoot := t.TempDir()
+	t.Setenv(core.EnvProjectsDir, t.TempDir())
+	project, projectPath, err := core.NewGameProject("Sample", gameRoot, "generic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := project.Save(projectPath); err != nil {
+		t.Fatal(err)
+	}
+
+	app := &App{}
+	opts := core.PersianOptions{
+		Reshape:       true,
+		BidiReorder:   false,
+		PersianDigits: true,
+	}
+	if err := app.SavePersianOptions(gameRoot, opts); err != nil {
+		t.Fatalf("SavePersianOptions failed: %v", err)
+	}
+
+	updated, err := app.GetProject(gameRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.PersianOpts.BidiReorder != false || updated.PersianOpts.PersianDigits != true {
+		t.Fatalf("persian opts not saved correctly: %+v", updated.PersianOpts)
+	}
+}
+
