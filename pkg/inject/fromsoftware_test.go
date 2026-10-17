@@ -13,6 +13,7 @@ import (
 func TestFromSoftwareInjectorLooseFMG(t *testing.T) {
 	tempDir := t.TempDir()
 	gameRoot := filepath.Join(tempDir, "game")
+	workDir := filepath.Join(tempDir, "work")
 	if err := os.MkdirAll(gameRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -34,6 +35,8 @@ func TestFromSoftwareInjectorLooseFMG(t *testing.T) {
 	}
 
 	proj := core.NewProject("test-fs", tempDir, "fromsoftware")
+	// P0 fix: WorkingDir must be set so staging path is deterministic.
+	proj.WorkingDir = workDir
 	proj.AddEntry(core.StringEntry{
 		ID:          "entry-1",
 		File:        fmgRel,
@@ -59,10 +62,22 @@ func TestFromSoftwareInjectorLooseFMG(t *testing.T) {
 		t.Fatalf("string count = %d, want 1", res.StringCount)
 	}
 
-	// Verify modified FMG on disk
-	modifiedBytes, err := os.ReadFile(fmgPath)
+	// P0 fix: original game file must be UNCHANGED.
+	originalAfter, err := os.ReadFile(fmgPath)
 	if err != nil {
 		t.Fatal(err)
+	}
+	origHash := sha256File(fmgBytes)
+	afterHash := sha256File(originalAfter)
+	if origHash != afterHash {
+		t.Errorf("original game file was mutated by injection (staging contract violated)")
+	}
+
+	// Verify modified FMG in STAGED output, not in GameRoot.
+	stagedPath := filepath.Join(workDir, "out", fmgRel)
+	modifiedBytes, err := os.ReadFile(stagedPath)
+	if err != nil {
+		t.Fatalf("staged file not found at %s: %v", stagedPath, err)
 	}
 	rows, err := extract.ParseFMG(modifiedBytes)
 	if err != nil {
@@ -79,6 +94,7 @@ func TestFromSoftwareInjectorLooseFMG(t *testing.T) {
 func TestFromSoftwareInjectorMsgbndDCX(t *testing.T) {
 	tempDir := t.TempDir()
 	gameRoot := filepath.Join(tempDir, "game")
+	workDir := filepath.Join(tempDir, "work")
 	msgDir := filepath.Join(gameRoot, "msg", "engus")
 	if err := os.MkdirAll(msgDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -111,6 +127,8 @@ func TestFromSoftwareInjectorMsgbndDCX(t *testing.T) {
 	}
 
 	proj := core.NewProject("test-fs-dcx", tempDir, "fromsoftware")
+	// P0 fix: WorkingDir must be set.
+	proj.WorkingDir = workDir
 	proj.AddEntry(core.StringEntry{
 		ID:          "entry-katana",
 		File:        containerRel + "/item.fmg",
@@ -133,10 +151,22 @@ func TestFromSoftwareInjectorMsgbndDCX(t *testing.T) {
 		t.Fatalf("modified files = %v, want [%s]", res.ModifiedFiles, containerRel)
 	}
 
-	// Verify on disk by unpacking DCX -> BND4 -> FMG
-	reloadedDCX, err := os.ReadFile(containerPath)
+	// P0 fix: original game file must be UNCHANGED.
+	originalAfter, err := os.ReadFile(containerPath)
 	if err != nil {
 		t.Fatal(err)
+	}
+	origHash := sha256File(dcxBytes)
+	afterHash := sha256File(originalAfter)
+	if origHash != afterHash {
+		t.Errorf("original game file was mutated by injection (staging contract violated)")
+	}
+
+	// Verify in STAGED output by unpacking DCX -> BND4 -> FMG.
+	stagedPath := filepath.Join(workDir, "out", filepath.FromSlash(containerRel))
+	reloadedDCX, err := os.ReadFile(stagedPath)
+	if err != nil {
+		t.Fatalf("staged container not found at %s: %v", stagedPath, err)
 	}
 	unpackedBND, err := extract.DecompressDCX(reloadedDCX)
 	if err != nil {

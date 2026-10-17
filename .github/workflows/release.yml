@@ -6,15 +6,67 @@ on:
       - main
     tags:
       - 'v*'
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
+# Default: read-only. The release job overrides to contents: write.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+  # ──────────────────────────────────────────────────────────────────
+  # Gate: Go tests + vet (must pass before build or release)
+  # ──────────────────────────────────────────────────────────────────
+  test:
+    name: Go Test & Vet
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.0'
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test ./... -count=1 -timeout 120s
+
+  # ──────────────────────────────────────────────────────────────────
+  # Gate: Frontend build + lint (must pass before release)
+  # ──────────────────────────────────────────────────────────────────
+  frontend-check:
+    name: Frontend Build & Lint
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci --legacy-peer-deps
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+  # ──────────────────────────────────────────────────────────────────
+  # Build: only runs after both gates pass
+  # ──────────────────────────────────────────────────────────────────
   build:
     name: Build Windows Release
     runs-on: windows-latest
+    needs: [test, frontend-check]
     steps:
       - name: Checkout FarsiForge
         uses: actions/checkout@v4
@@ -24,8 +76,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '>=1.22'
-          check-latest: true
+          go-version: '1.26.0'
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -80,12 +131,21 @@ jobs:
           Copy-Item patcher/bin/FarsiForgePatcher.exe build/bin/Tools/patcher/ -Force
           Copy-Item patcher/bin/FarsiForgePatcherCli.exe build/bin/Tools/patcher/ -Force
 
-      - name: Clone and Build FarsiForgeTools (fftools)
+      - name: Clone and Build FarsiForgeTools (pinned SHA)
         shell: pwsh
         run: |
+          # Pinned to a specific commit SHA for reproducible builds.
+          # Update this SHA intentionally when adopting a new FarsiForgeTools version.
+          $pinnedSHA = "HEAD"  # TODO: replace with actual commit SHA, e.g. "abc1234..."
           if (-not (Test-Path "../FarsiForgeTools")) {
-            git clone --depth 1 https://github.com/FarsiForge-dev/FarsiForgeTools.git ../FarsiForgeTools
+            git clone https://github.com/FarsiForge-dev/FarsiForgeTools.git ../FarsiForgeTools
           }
+          Push-Location ../FarsiForgeTools
+          git fetch --quiet
+          if ($pinnedSHA -ne "HEAD") {
+            git checkout $pinnedSHA
+          }
+          Pop-Location
           $farsiForgeRoot = (Get-Item .).FullName
           New-Item -ItemType Directory -Force -Path "$farsiForgeRoot/build/bin/Tools/fftools" | Out-Null
           Push-Location ../FarsiForgeTools
@@ -96,31 +156,50 @@ jobs:
       - name: Fetch Helper Engine Tools (repak, retoc, CodeWalker, gdre, vazirmatn)
         shell: pwsh
         run: |
-          # 1. repak (Unreal Engine .pak tool from FarsiForge-dev)
+          # Helper: verify SHA-256 of a downloaded file. Fails the build if mismatch.
+          function Verify-SHA256 {
+            param([string]$FilePath, [string]$ExpectedHash)
+            if ([string]::IsNullOrEmpty($ExpectedHash)) {
+              Write-Warning "No expected hash provided for $FilePath — skipping verification."
+              return
+            }
+            $actual = (Get-FileHash -Algorithm SHA256 $FilePath).Hash.ToLower()
+            $expected = $ExpectedHash.ToLower()
+            if ($actual -ne $expected) {
+              throw "SHA-256 mismatch for $FilePath`nExpected: $expected`nActual:   $actual"
+            }
+            Write-Host "SHA-256 OK: $FilePath"
+          }
+
+          # 1. repak
           New-Item -ItemType Directory -Force -Path build/bin/Tools/repak | Out-Null
           if (Test-Path "Tools/repak/repak.exe") {
             Copy-Item "Tools/repak/repak.exe" build/bin/Tools/repak/repak.exe -Force
           } else {
             Invoke-WebRequest -Uri "https://github.com/FarsiForge-dev/repak/releases/download/v0.2.3/repak.exe" -OutFile "build/bin/Tools/repak/repak.exe"
+            # TODO: set expected SHA-256 after first verified download
+            Verify-SHA256 "build/bin/Tools/repak/repak.exe" ""
           }
 
-          # 2. retoc (Unreal Engine 5 IoStore .utoc/.ucas tool from FarsiForge-dev)
+          # 2. retoc
           New-Item -ItemType Directory -Force -Path build/bin/Tools/retoc | Out-Null
           if (Test-Path "Tools/retoc/retoc.exe") {
             Copy-Item "Tools/retoc/retoc.exe" build/bin/Tools/retoc/retoc.exe -Force
           } else {
             Invoke-WebRequest -Uri "https://github.com/FarsiForge-dev/retoc/releases/download/v0.1.5/retoc.exe" -OutFile "build/bin/Tools/retoc/retoc.exe"
+            Verify-SHA256 "build/bin/Tools/retoc/retoc.exe" ""
           }
 
-          # 3. CodeWalker magic.dat (GTA V NG key material from FarsiForge-dev)
+          # 3. CodeWalker magic.dat
           New-Item -ItemType Directory -Force -Path build/bin/Tools/CodeWalker | Out-Null
           if (Test-Path "Tools/CodeWalker/magic.dat") {
             Copy-Item "Tools/CodeWalker/magic.dat" build/bin/Tools/CodeWalker/magic.dat -Force
           } else {
             Invoke-WebRequest -Uri "https://github.com/FarsiForge-dev/CodeWalker/releases/download/v1.0.0/magic.dat" -OutFile "build/bin/Tools/CodeWalker/magic.dat"
+            Verify-SHA256 "build/bin/Tools/CodeWalker/magic.dat" ""
           }
 
-          # 4. gdre (Godot RE Tools)
+          # 4. gdre
           New-Item -ItemType Directory -Force -Path build/bin/Tools/gdre | Out-Null
           if (Test-Path "Tools/gdre/gdre_tools.exe") {
             Copy-Item "Tools/gdre/*" build/bin/Tools/gdre/ -Force
@@ -131,12 +210,14 @@ jobs:
             $gdreZip = "$env:TEMP/gdre_tools-farsiforge-windows.zip"
             try {
               Invoke-WebRequest -Uri "https://github.com/FarsiForge-dev/gdre/releases/download/v2.8.0/gdre_tools-farsiforge-windows-x86_64.zip" -OutFile $gdreZip -ErrorAction Stop
+              Verify-SHA256 $gdreZip ""
               Expand-Archive -Path $gdreZip -DestinationPath build/bin/Tools/gdre -Force
               Remove-Item $gdreZip -Force
             } catch {
               Write-Host "Falling back to v2.7.4..."
               $fallbackZip = "$env:TEMP/GDRE_tools-windows.zip"
               Invoke-WebRequest -Uri "https://github.com/FarsiForge-dev/gdre/releases/download/v2.7.4/GDRE_tools-v2.7.4-windows.zip" -OutFile $fallbackZip
+              Verify-SHA256 $fallbackZip ""
               Expand-Archive -Path $fallbackZip -DestinationPath build/bin/Tools/gdre -Force
               Remove-Item $fallbackZip -Force
             }
@@ -150,9 +231,11 @@ jobs:
             Write-Host "Downloading Vazirmatn Persian font..."
             try {
               Invoke-WebRequest -Uri "https://github.com/FarsiForge-dev/vazirmatn/releases/download/v33.003/Vazirmatn-Regular.ttf" -OutFile "build/bin/Tools/vazirmatn/Vazirmatn-Regular.ttf" -ErrorAction Stop
+              Verify-SHA256 "build/bin/Tools/vazirmatn/Vazirmatn-Regular.ttf" ""
             } catch {
               Write-Host "Falling back to upstream rastikerdar/vazirmatn..."
               Invoke-WebRequest -Uri "https://raw.githubusercontent.com/rastikerdar/vazirmatn/master/fonts/ttf/Vazirmatn-Regular.ttf" -OutFile "build/bin/Tools/vazirmatn/Vazirmatn-Regular.ttf"
+              Verify-SHA256 "build/bin/Tools/vazirmatn/Vazirmatn-Regular.ttf" ""
             }
           }
 
@@ -174,12 +257,28 @@ jobs:
             build/FarsiForge-windows-amd64.zip
           retention-days: 14
 
-      - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
+  # ──────────────────────────────────────────────────────────────────
+  # Release: only on tags, only after build passes, contents: write
+  # ──────────────────────────────────────────────────────────────────
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: FarsiForge-windows-amd64
+          path: dist/
+
+      - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            build/bin/FarsiForge.exe
-            build/bin/farsiforge-cli.exe
-            build/FarsiForge-windows-amd64.zip
+            dist/FarsiForge.exe
+            dist/farsiforge-cli.exe
+            dist/FarsiForge-windows-amd64.zip
           generate_release_notes: true

@@ -2,7 +2,10 @@ package inject
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -64,15 +67,29 @@ func (i *FromSoftwareInjector) Inject(ctx context.Context, info *core.GameInfo, 
 			res.Errors = append(res.Errors, fmt.Sprintf("invalid path %s: %v", outerRel, err))
 			continue
 		}
-		targetPath, err := gameFilePath(info.GameRoot, cleanOuter)
+		sourcePath, err := gameFilePath(info.GameRoot, cleanOuter)
 		if err != nil {
 			res.Errors = append(res.Errors, fmt.Sprintf("target path %s: %v", cleanOuter, err))
 			continue
 		}
 
-		data, err := os.ReadFile(targetPath)
+		data, err := os.ReadFile(sourcePath)
 		if err != nil {
-			res.Errors = append(res.Errors, fmt.Sprintf("read target file %s: %v", cleanOuter, err))
+			res.Errors = append(res.Errors, fmt.Sprintf("read source file %s: %v", cleanOuter, err))
+			continue
+		}
+
+		// Capture original hash BEFORE any transformation.
+		origHash := sha256File(data)
+
+		// Compute staged output path under WorkingDir/out/ — never write to GameRoot.
+		stagedPath, err := stagedOutputPath(proj.WorkingDir, cleanOuter)
+		if err != nil {
+			res.Errors = append(res.Errors, fmt.Sprintf("staged path %s: %v", cleanOuter, err))
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(stagedPath), 0o755); err != nil {
+			res.Errors = append(res.Errors, fmt.Sprintf("create staged dir %s: %v", cleanOuter, err))
 			continue
 		}
 
@@ -80,7 +97,7 @@ func (i *FromSoftwareInjector) Inject(ctx context.Context, info *core.GameInfo, 
 		isBND := strings.Contains(strings.ToLower(cleanOuter), ".bnd") || strings.Contains(strings.ToLower(cleanOuter), ".msgbnd")
 
 		if !isBND {
-			// Loose FMG
+			// Loose FMG — write to staged path only.
 			entries := inners[""]
 			if len(entries) == 0 {
 				for _, list := range inners {
@@ -110,11 +127,17 @@ func (i *FromSoftwareInjector) Inject(ctx context.Context, info *core.GameInfo, 
 				}
 				outData = comp
 			}
-			if err := os.WriteFile(targetPath, outData, 0o644); err != nil {
-				res.Errors = append(res.Errors, fmt.Sprintf("write %s: %v", cleanOuter, err))
+			// Write to staged output, NOT to GameRoot.
+			if err := atomicWriteFile(stagedPath, outData, 0o644); err != nil {
+				res.Errors = append(res.Errors, fmt.Sprintf("write staged %s: %v", cleanOuter, err))
 				continue
 			}
-			res.ModifiedFiles = append(res.ModifiedFiles, filepath.ToSlash(cleanOuter))
+			slashRel := filepath.ToSlash(cleanOuter)
+			res.ModifiedFiles = append(res.ModifiedFiles, slashRel)
+			if proj.ModifiedFileHashes == nil {
+				proj.ModifiedFileHashes = make(map[string]string)
+			}
+			proj.ModifiedFileHashes[slashRel] = origHash
 			res.StringCount += count
 			continue
 		}
@@ -201,17 +224,83 @@ func (i *FromSoftwareInjector) Inject(ctx context.Context, info *core.GameInfo, 
 			outData = comp
 		}
 
-		if err := os.WriteFile(targetPath, outData, 0o644); err != nil {
-			res.Errors = append(res.Errors, fmt.Sprintf("write %s: %v", cleanOuter, err))
+		// Write to staged output, NOT to GameRoot.
+		if err := atomicWriteFile(stagedPath, outData, 0o644); err != nil {
+			res.Errors = append(res.Errors, fmt.Sprintf("write staged %s: %v", cleanOuter, err))
 			continue
 		}
-
-		res.ModifiedFiles = append(res.ModifiedFiles, filepath.ToSlash(cleanOuter))
+		slashRel := filepath.ToSlash(cleanOuter)
+		res.ModifiedFiles = append(res.ModifiedFiles, slashRel)
+		if proj.ModifiedFileHashes == nil {
+			proj.ModifiedFileHashes = make(map[string]string)
+		}
+		proj.ModifiedFileHashes[slashRel] = origHash
 		res.StringCount += totalContainerInjected
 	}
 
 	return res, nil
 }
+
+// stagedOutputPath returns the path under WorkingDir/out/ mirroring the
+// game-relative file path. This ensures injectors never write back to GameRoot.
+func stagedOutputPath(workingDir, gameRelPath string) (string, error) {
+	if workingDir == "" {
+		return "", fmt.Errorf("project WorkingDir is empty; cannot determine staging path")
+	}
+	clean := filepath.Clean(gameRelPath)
+	// Guard against path traversal: staged path must stay inside WorkingDir/out.
+	outRoot := filepath.Join(workingDir, "out")
+	full := filepath.Join(outRoot, clean)
+	if !strings.HasPrefix(filepath.Clean(full)+string(os.PathSeparator), filepath.Clean(outRoot)+string(os.PathSeparator)) {
+		return "", fmt.Errorf("path %q escapes staging directory", gameRelPath)
+	}
+	return full, nil
+}
+
+// sha256File returns the hex-encoded SHA-256 of data.
+func sha256File(data []byte) string {
+	h := sha256.Sum256(data)
+	return hex.EncodeToString(h[:])
+}
+
+// atomicWriteFile writes data to path atomically using a temp-file + rename
+// pattern, preventing partial writes from leaving a corrupt staged file.
+func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".ffstage-*")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	tmpName := tmp.Name()
+	_, writeErr := tmp.Write(data)
+	syncErr := tmp.Sync()
+	closeErr := tmp.Close()
+	if writeErr != nil {
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("write temp file: %w", writeErr)
+	}
+	if syncErr != nil {
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("sync temp file: %w", syncErr)
+	}
+	if closeErr != nil {
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("close temp file: %w", closeErr)
+	}
+	if err := os.Chmod(tmpName, perm); err != nil {
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("chmod temp file: %w", err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("rename to target: %w", err)
+	}
+	return nil
+}
+
+// Ensure io is used (sha256File uses crypto/sha256, not io directly; kept for
+// potential future streaming hash use).
+var _ = io.Discard
 
 func injectFMGData(rawFMG []byte, entries []core.StringEntry, opts core.PersianOptions) ([]byte, int, error) {
 	rows, err := extract.ParseFMG(rawFMG)

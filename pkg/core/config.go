@@ -202,7 +202,9 @@ func LoadConfig(path string) (Config, error) {
 	return cfg, nil
 }
 
-// SaveConfig writes configuration to a JSON file.
+// SaveConfig writes configuration to a JSON file atomically.
+// A temporary file is written, synced, then renamed over the target so that
+// a crash or power loss cannot leave a partially-written config file.
 func SaveConfig(cfg Config, path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
@@ -213,7 +215,34 @@ func SaveConfig(cfg Config, path string) error {
 		return fmt.Errorf("marshal config: %w", err)
 	}
 
-	return os.WriteFile(path, data, 0644)
+	// Write to a sibling temp file first.
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".farsiforge-cfg-*")
+	if err != nil {
+		return fmt.Errorf("create temp config: %w", err)
+	}
+	tmpName := tmp.Name()
+
+	_, writeErr := tmp.Write(data)
+	syncErr := tmp.Sync()
+	closeErr := tmp.Close()
+	if writeErr != nil {
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("write temp config: %w", writeErr)
+	}
+	if syncErr != nil {
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("sync temp config: %w", syncErr)
+	}
+	if closeErr != nil {
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("close temp config: %w", closeErr)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("rename temp config: %w", err)
+	}
+	return nil
 }
 
 // ConfigPath returns the default config file path.
