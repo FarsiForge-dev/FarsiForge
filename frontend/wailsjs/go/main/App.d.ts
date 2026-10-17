@@ -12,6 +12,10 @@ export function ExportTranslations(arg1:string,arg2:string):Promise<void>;
 
 export function Extract(arg1:core.GameInfo):Promise<number>;
 
+export function GetEngineCapabilities():Promise<Array<core.EngineCapability>>;
+
+export function GetEngineCapability(arg1:string):Promise<core.EngineCapability>;
+
 export function GetProject(arg1:string):Promise<core.Project>;
 
 export function GetSettings():Promise<main.Settings>;

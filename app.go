@@ -48,6 +48,25 @@ func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 }
 
+// ProgressEvent communicates pipeline progress and stage descriptions to the frontend.
+type ProgressEvent struct {
+	Stage   string  `json:"stage"`
+	StageFa string  `json:"stage_fa"`
+	Percent float64 `json:"percent"`
+	Detail  string  `json:"detail"`
+}
+
+func (a *App) emitProgress(stage, stageFa string, percent float64, detail string) {
+	if a.ctx != nil {
+		wailsruntime.EventsEmit(a.ctx, "pipeline:progress", ProgressEvent{
+			Stage:   stage,
+			StageFa: stageFa,
+			Percent: percent,
+			Detail:  detail,
+		})
+	}
+}
+
 // ── Settings ────────────────────────────────────────────────────────
 
 // Settings is the JSON-serializable settings struct exposed to the frontend.
@@ -177,19 +196,42 @@ func (a *App) GetToolStatus() *ToolStatus {
 	return status
 }
 
-// InstallPythonPackage runs `pip install <name>` silently via pkg/tools and
-// returns the combined output/error text.
+// GetEngineCapabilities returns the unified support matrix of all game engines.
+func (a *App) GetEngineCapabilities() []core.EngineCapability {
+	return core.AllEngineCapabilities()
+}
+
+// GetEngineCapability returns the capability details for a specific engine.
+func (a *App) GetEngineCapability(engine string) core.EngineCapability {
+	return core.FindEngineCapability(engine)
+}
+
+// Allowed Python dependencies for FarsiForge toolchain
+var allowedPythonPackages = map[string]string{
+	"unitypy": "UnityPy",
+	"pillow":  "Pillow",
+	"brotli":  "brotli",
+}
+
+// InstallPythonPackage runs `pip install <name>` silently via pkg/tools for approved packages
+// and returns the combined output/error text.
 func (a *App) InstallPythonPackage(name string) (string, error) {
-	reg := a.toolReg
-	if reg == nil || reg.Python == "" {
-		return "", fmt.Errorf("Python is not available; install Python first")
-	}
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return "", fmt.Errorf("package name is required")
 	}
+	canonicalPkg, allowed := allowedPythonPackages[strings.ToLower(name)]
+	if !allowed {
+		return "", fmt.Errorf("package %q is not an approved FarsiForge dependency; only approved packages (UnityPy) may be installed", name)
+	}
+
+	reg := a.toolReg
+	if reg == nil || reg.Python == "" {
+		return "", fmt.Errorf("Python is not available; install Python first")
+	}
+
 	// Use `python -m pip install` so it targets the same interpreter.
-	out, err := tools.RunSilent(a.ctx, "", reg.Python, "-m", "pip", "install", name)
+	out, err := tools.RunSilent(a.ctx, "", reg.Python, "-m", "pip", "install", canonicalPkg)
 	if err != nil {
 		return out, fmt.Errorf("pip install failed: %v\n%s", err, out)
 	}
@@ -240,6 +282,7 @@ func (a *App) Extract(info *core.GameInfo) (int, error) {
 	if info == nil {
 		return 0, fmt.Errorf("game information is required")
 	}
+	a.emitProgress("extract", "آماده‌سازی ساختار پروژه و دایرکتوری‌ها...", 15, info.GameRoot)
 	previous, loadErr := core.LoadGameProject(info.GameRoot)
 	if loadErr != nil && !errors.Is(loadErr, os.ErrNotExist) {
 		return 0, fmt.Errorf("load existing project: %w", loadErr)
@@ -257,16 +300,21 @@ func (a *App) Extract(info *core.GameInfo) (int, error) {
 	proj.Backend = info.Backend
 	proj.Version = info.Version
 
+	a.emitProgress("extract", fmt.Sprintf("در حال استخراج متون با ماژول %s...", info.Engine), 40, "خواندن بسته‌ها و فایل‌های متنی")
 	if err := extract.Run(a.ctx, info, proj, a.toolReg); err != nil {
+		a.emitProgress("extract", "خطا در استخراج متون", 0, err.Error())
 		return 0, fmt.Errorf("extraction failed: %v", err)
 	}
 	if previous != nil {
+		a.emitProgress("extract", "تطبیق و ادغام ترجمه‌های پیشین...", 80, "ادغام ترجمه‌ها")
 		proj.MergeTranslations(previous)
 	}
+	a.emitProgress("extract", "ذخیره‌سازی دیتابیس پروژه...", 95, "نوشتن فایل‌های پروژه")
 	if err := proj.Save(projectPath); err != nil {
 		return 0, fmt.Errorf("failed to save project: %v", err)
 	}
 
+	a.emitProgress("extract", "استخراج متون با موفقیت به پایان رسید.", 100, fmt.Sprintf("%d رشته استخراج شد", len(proj.Entries)))
 	return len(proj.Entries), nil
 }
 
@@ -275,6 +323,7 @@ func (a *App) Inject(info *core.GameInfo) (int, error) {
 	if info == nil {
 		return 0, fmt.Errorf("game information is required")
 	}
+	a.emitProgress("inject", "خواندن پروژه و اعتبارسنجی عبارات...", 15, "بررسی متغیرها و تگ‌ها")
 	proj, err := core.LoadGameProject(info.GameRoot)
 	if err != nil {
 		return 0, fmt.Errorf("load project: %w", err)
@@ -305,6 +354,7 @@ func (a *App) Inject(info *core.GameInfo) (int, error) {
 			}
 			sample = append(sample, fmt.Sprintf("[%s] %s: %s", he.EntryID, he.Type, he.Message))
 		}
+		a.emitProgress("inject", "تزریق به دلیل خطاهای اعتبارسنجی متوقف شد", 0, fmt.Sprintf("%d خطا", len(hardErrors)))
 		return 0, fmt.Errorf("injection blocked: %d hard validation error(s) found:\n%s", len(hardErrors), strings.Join(sample, "\n"))
 	}
 
@@ -313,14 +363,18 @@ func (a *App) Inject(info *core.GameInfo) (int, error) {
 		opts = core.DefaultPersianOptions()
 	}
 
+	a.emitProgress("inject", "اعمال تغییرات روی کپی‌های موقت (Staging)...", 50, "پردازش متون و راست‌چین‌سازی")
 	modified, err := inject.Run(a.ctx, info, proj, a.toolReg, opts)
 	if err != nil {
+		a.emitProgress("inject", "خطا در تزریق متون", 0, err.Error())
 		return 0, fmt.Errorf("injection failed: %v", err)
 	}
+	a.emitProgress("inject", "ذخیره‌سازی اطلاعات پچ و هش فایل‌ها...", 90, "نهایی‌سازی استیجینگ")
 	if err := proj.Save(projectPath); err != nil {
 		return 0, fmt.Errorf("save injection results: %w", err)
 	}
 
+	a.emitProgress("inject", "تزریق با موفقیت انجام شد.", 100, fmt.Sprintf("%d فایل آماده پچ شد", len(modified)))
 	return len(modified), nil
 }
 
@@ -581,6 +635,7 @@ func (a *App) BuildPatcher(gameRoot string, credits string) (*BuildPatcherResult
 		return nil, fmt.Errorf("no patched files found to build a patch (run injection first)")
 	}
 
+	a.emitProgress("patch", "جمع‌آوری فایل‌های آماده پچ...", 15, fmt.Sprintf("%d تارگت", len(targets)))
 	outputDir := filepath.Join(proj.ProjectDir, "dist")
 	cfg := installer.BuildConfig{
 		GameRoot:    gameRoot,
@@ -594,11 +649,14 @@ func (a *App) BuildPatcher(gameRoot string, credits string) (*BuildPatcherResult
 		OutputDir:   outputDir,
 	}
 
+	a.emitProgress("patch", "بسته‌بندی باینری پچ FFP1 و انتقال فایل‌ها...", 50, "نوشتن در دایرکتوری موقت")
 	res, err := installer.Build(cfg)
 	if err != nil {
+		a.emitProgress("patch", "خطا در بسته‌بندی پچ", 0, err.Error())
 		return nil, fmt.Errorf("build patcher: %v", err)
 	}
 
+	a.emitProgress("patch", "بسته‌بندی پچ با موفقیت انجام شد.", 100, res.OutputDir)
 	return &BuildPatcherResult{
 		OutputDir:   res.OutputDir,
 		PatchFile:   res.PatchFile,

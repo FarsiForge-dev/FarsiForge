@@ -22,6 +22,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Transactional Package Creation**: `installer.Build` now stages all package components (`FarsiForgePatch.ffp1`, patcher binary, optional font, and README) in a temporary staging directory and publishes them atomically only after every step succeeds.
 - **Portable Patch Mode**: `installer.Build` generates context-aware bilingual README instructions distinguishing standalone self-extracting packages (when `FarsiForgePatcher.exe` is bundled) from portable patch-only distributions (when no patcher is bundled).
 - **Filesystem & Backup Safety**: Hardened `BackupManager` against Windows device names (`CON`, `PRN`, `AUX`, `NUL`, `COM1-9`, `LPT1-9`), NTFS data streams, and symlink escapes with `verifyWithinRoot`. Added nil guards to `RollbackAll`.
+- **Unified Engine Capability Matrix**: Centralized engine capabilities in `pkg/core/capabilities.go` and exposed via `GetEngineCapabilities` / `GetEngineCapability`. Replaced hardcoded frontend arrays with live capability query reporting detection, extraction, injection, archive rebuild, and font readiness with contextual guidance notes.
+- **Scanner Diagnostics & Scan Visibility**: Added `ScanDiagnostics` and `WalkDirWithDiagnostics` in `pkg/scanner/scanner.go` to explicitly surface skipped directories, permission denials, and scan truncation.
+- **Granular Pipeline Progress Events**: Added `pipeline:progress` Wails runtime event emission across extraction, injection, and patch building with real percentage values, stage names, and file counters.
+- **Rich In-App Diagnostics Toast**: Replaced browser `alert()` popups with non-blocking error banners featuring actionable error explanations and a "کپی گزارش کامل خطا (Diagnostics)" button for instant clipboard export.
+- **Interactive Settings Modal**: Added full Settings configuration dialog in workbench header wired to `GetSettings` and `SaveSettings`, persisting `tools_dir`, `output_dir`, and default author.
+- **Pip Package Installation Allowlist**: Restriced `InstallPythonPackage` in `app.go` strictly to pre-approved FarsiForge dependencies (`UnityPy`, `Pillow`, `brotli`), rejecting unapproved packages before accessing the environment.
 - **Game Launch Safety**: `LaunchGame` in `app.go` now validates executable paths against traversal, root boundary escape, directory execution, and empty parameters.
 
 ### Changed

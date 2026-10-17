@@ -82,11 +82,11 @@ This roadmap is based on a source-level review of the application, Wails/Next.js
 
 ### 7. Use one capability matrix across backend, frontend, CLI, and docs
 
-- [ ] Expose engine capabilities from the registered detector/extractor/injector implementations instead of repeating engine lists in `frontend/src/app/page.tsx`.
-- [ ] Represent detection, extraction, translation, validation, injection, archive rebuild, font support, and patch-install support separately. Include conditional requirements and precise reasons (e.g. Unity raw-byte candidates without a verified typetree, Unreal `.uexp` strings, Godot's existing Persian `.translation` constraints).
-- [ ] Display the actual capability state and reason before long operations; never rely only on a generic success/failure alert.
+- [x] Expose engine capabilities from the registered detector/extractor/injector implementations instead of repeating engine lists in `frontend/src/app/page.tsx`.
+- [x] Represent detection, extraction, translation, validation, injection, archive rebuild, font support, and patch-install support separately. Include conditional requirements and precise reasons (e.g. Unity raw-byte candidates without a verified typetree, Unreal `.uexp` strings, Godot's existing Persian `.translation` constraints).
+- [x] Display the actual capability state and reason before long operations; never rely only on a generic success/failure alert.
 - [x] Re-audit `docs/support-matrix-audit.md`: it conflicts with the current registries/UI in places, including custom-to-generic injector mapping and current injection registrations. Update it from current code and add a test that catches documentation/capability drift.
-- [ ] Make discovery failures and truncated scans visible. `pkg/scanner/scanner.go` currently suppresses walk/callback errors, while some engine paths have explicit result limits; show skipped files, inaccessible directories, missing keys/tools, and partial extraction counts.
+- [x] Make discovery failures and truncated scans visible. `pkg/scanner/scanner.go` currently suppresses walk/callback errors, while some engine paths have explicit result limits; show skipped files, inaccessible directories, missing keys/tools, and partial extraction counts.
 
 **Acceptance criteria:** the displayed support status is derived from the same capability source the pipeline uses, and each unsupported/partial result explains what can and cannot be done.
 
@@ -96,14 +96,14 @@ This roadmap is based on a source-level review of the application, Wails/Next.js
 - [x] Add explicit row status controls (translated/approved/skipped), select/bulk actions, next/previous issue navigation, and visible QA summaries.
 - [x] Autosave drafts or provide explicit Save/Save All before leaving the translation step. Handle app shutdown, operation failure, and project switching without silently discarding edits.
 - [x] Add Back navigation and correctly reset all project-specific state when a new game is selected. Prevent overlapping operations and stale results from earlier runs.
-- [ ] Replace `alert(String(error))` and console-only diagnostics with readable in-app errors, recovery suggestions, operation logs, and copyable diagnostic reports.
-- [ ] Replace the hard-coded 50%/100% progress indicator with real progress events, stage names, cancellation where supported, and a clear partial-failure state.
+- [x] Replace `alert(String(error))` and console-only diagnostics with readable in-app errors, recovery suggestions, operation logs, and copyable diagnostic reports.
+- [x] Replace the hard-coded 50%/100% progress indicator with real progress events, stage names, cancellation where supported, and a clear partial-failure state.
 
 **Acceptance criteria:** projects with 100,000+ strings remain usable; edits are not silently lost; long operations can be understood and safely retried.
 
 ### 9. Connect settings and Persian options to real behavior
 
-- [ ] Wire the existing `GetSettings`/`SaveSettings` APIs into the UI, including tools/output directories, game search paths, default language/author, and persisted Persian settings.
+- [x] Wire the existing `GetSettings`/`SaveSettings` APIs into the UI, including tools/output directories, game search paths, default language/author, and persisted Persian settings.
 - [x] The RTL, shaping, Persian digits, and Vazirmatn controls in the current page are local React state only. Persist them and pass the selected values to the project/injection pipeline; a visual toggle must not pretend to change output when it does not.
 - [ ] Wire `Project.FontPath` and the optional `BuildConfig.FontFile` into patch building if a font is supported. Otherwise label the font option as unavailable until font packaging works.
 - [x] Validate custom paths before saving settings and report a failed tool-registry refresh instead of persisting a path while retaining the old registry.
@@ -133,7 +133,7 @@ This roadmap is based on a source-level review of the application, Wails/Next.js
 
 - [ ] Build a per-operation requirements check instead of checking only a single `Capabilities.ToolName`. Account for Unreal `repak`/`retoc`, UnityPy, FFTools, GDRE, RAGE key-material requirements, and FromSoftware's Oodle dependency as applicable.
 - [ ] Show detected path, version, architecture, license/source, and a test/run result for each required tool. Add refresh and a downloadable/copyable diagnostic report.
-- [ ] Replace arbitrary `pip install <name>` behavior with a documented, pinned requirements set in an isolated environment; avoid silently installing arbitrary packages from UI input.
+- [x] Replace arbitrary `pip install <name>` behavior with a documented, pinned requirements set in an isolated environment; avoid silently installing arbitrary packages from UI input.
 - [ ] Bound captured subprocess output, consistently report exit code/stdout/stderr, preserve cancellation, and use explicit timeouts for tool discovery and operations that may hang.
 - [ ] Add fixture-based tests for missing, corrupt, incompatible, wrong-architecture, and non-executable helper tools.
 

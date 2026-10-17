@@ -78,29 +78,64 @@ func FindDataDir(dir string) string {
 	return ""
 }
 
-// WalkDir walks up to maxDepth levels and returns all file paths matching a predicate.
-func WalkDir(root string, maxDepth int, pred func(string) bool) []string {
+// ScanDiagnostics records warnings, errors, and truncation encountered during a directory scan.
+type ScanDiagnostics struct {
+	TotalScannedFiles  int      `json:"total_scanned_files"`
+	SkippedDirectories []string `json:"skipped_directories,omitempty"`
+	SkippedFiles       []string `json:"skipped_files,omitempty"`
+	AccessErrors       []string `json:"access_errors,omitempty"`
+	Truncated          bool     `json:"truncated"`
+}
+
+// WalkDirWithDiagnostics walks up to maxDepth levels, records skipped/inaccessible entries,
+// and returns all matching file paths along with scan diagnostics.
+func WalkDirWithDiagnostics(root string, maxDepth int, pred func(string) bool) ([]string, ScanDiagnostics) {
 	var results []string
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+	var diag ScanDiagnostics
+
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
+			diag.AccessErrors = append(diag.AccessErrors, path+": "+err.Error())
+			if d != nil && d.IsDir() {
+				diag.SkippedDirectories = append(diag.SkippedDirectories, path)
+				return filepath.SkipDir
+			}
+			diag.SkippedFiles = append(diag.SkippedFiles, path)
 			return nil
 		}
-		rel, _ := filepath.Rel(root, path)
+
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return nil
+		}
+		if rel == "." {
+			return nil
+		}
+
 		depth := strings.Count(rel, string(filepath.Separator))
 		if depth > maxDepth {
 			if d.IsDir() {
+				diag.SkippedDirectories = append(diag.SkippedDirectories, path)
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if !d.IsDir() && pred(path) {
-			results = append(results, path)
+
+		if !d.IsDir() {
+			diag.TotalScannedFiles++
+			if pred(path) {
+				results = append(results, path)
+			}
 		}
 		return nil
 	})
-	if err != nil {
-		return nil
-	}
+
+	return results, diag
+}
+
+// WalkDir walks up to maxDepth levels and returns all file paths matching a predicate.
+func WalkDir(root string, maxDepth int, pred func(string) bool) []string {
+	results, _ := WalkDirWithDiagnostics(root, maxDepth, pred)
 	return results
 }
 

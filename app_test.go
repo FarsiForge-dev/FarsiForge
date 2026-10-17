@@ -490,4 +490,73 @@ func TestLaunchGame_SecurityAndBoundaries(t *testing.T) {
 	}
 }
 
+func TestEngineCapabilities_UnifiedMatrix(t *testing.T) {
+	app := &App{}
+	caps := app.GetEngineCapabilities()
+	if len(caps) < 10 {
+		t.Fatalf("expected at least 10 engine capabilities, got %d", len(caps))
+	}
+
+	foundUnity := false
+	foundUE3 := false
+	foundSAGE := false
+
+	for _, c := range caps {
+		if c.Engine == "unity" {
+			foundUnity = true
+			if !c.CanDetect || !c.CanExtract || !c.CanInject || c.Status != "full" {
+				t.Fatalf("unexpected unity capability: %+v", c)
+			}
+		}
+		if c.Engine == "ue3" {
+			foundUE3 = true
+			if !c.CanDetect || c.CanExtract || c.CanInject || c.Status != "detection-only" {
+				t.Fatalf("unexpected ue3 capability: %+v", c)
+			}
+		}
+		if c.Engine == "sage" {
+			foundSAGE = true
+			if !c.CanDetect || !c.CanExtract || c.CanInject || c.Status != "extract-only" {
+				t.Fatalf("unexpected sage capability: %+v", c)
+			}
+		}
+	}
+
+	if !foundUnity || !foundUE3 || !foundSAGE {
+		t.Fatalf("missing expected engines in capabilities: unity=%v, ue3=%v, sage=%v", foundUnity, foundUE3, foundSAGE)
+	}
+
+	// Test single lookup
+	godotCap := app.GetEngineCapability("godot")
+	if godotCap.Engine != "godot" || !godotCap.ArchiveRebuild {
+		t.Fatalf("unexpected godot capability: %+v", godotCap)
+	}
+
+	// Test fallback for unknown custom engine
+	customCap := app.GetEngineCapability("custom-special-engine")
+	if customCap.Status != "custom" {
+		t.Fatalf("expected custom status for unknown engine, got: %s", customCap.Status)
+	}
+}
+
+func TestInstallPythonPackage_AllowlistPolicy(t *testing.T) {
+	app := &App{}
+
+	// Disallowed arbitrary package
+	_, err := app.InstallPythonPackage("malicious-arbitrary-package")
+	if err == nil {
+		t.Fatal("expected error when installing unauthorized python package")
+	}
+	if !strings.Contains(err.Error(), "not an approved FarsiForge dependency") {
+		t.Fatalf("expected dependency approval error, got: %v", err)
+	}
+
+	// Empty package
+	_, err = app.InstallPythonPackage("")
+	if err == nil {
+		t.Fatal("expected error when installing empty package name")
+	}
+}
+
+
 

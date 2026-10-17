@@ -22,7 +22,11 @@ import {
   ChevronLeft,
   ChevronRight,
   AlertTriangle,
-  RotateCcw
+  RotateCcw,
+  Copy,
+  Check,
+  X,
+  Info
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -43,8 +47,13 @@ import {
   SelectSaveFile,
   SelectOpenFile,
   SavePersianOptions,
-  ValidateProject
+  ValidateProject,
+  GetEngineCapabilities,
+  GetEngineCapability,
+  GetSettings,
+  SaveSettings
 } from "../../wailsjs/go/main/App";
+import { EventsOn } from "../../wailsjs/runtime/runtime";
 import { core, main } from "../../wailsjs/go/models";
 
 type Step = "detect" | "extract" | "translate" | "inject" | "patch" | "success";
@@ -54,6 +63,8 @@ export default function FarsiForgeDashboard() {
   const [dirPath, setDirPath] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [stageName, setStageName] = useState("");
+  const [stageDetail, setStageDetail] = useState("");
   const [gameInfo, setGameInfo] = useState<core.GameInfo | null>(null);
   const [translations, setTranslations] = useState<core.StringEntry[]>([]);
   const [patchResult, setPatchResult] = useState<Awaited<ReturnType<typeof BuildPatcher>> | null>(null);
@@ -62,7 +73,17 @@ export default function FarsiForgeDashboard() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [toolStatus, setToolStatus] = useState<main.ToolStatus | null>(null);
+  const [engineCaps, setEngineCaps] = useState<core.EngineCapability[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [notification, setNotification] = useState<{
+    type: "success" | "error" | "info" | "warning";
+    title: string;
+    message: string;
+    diagnostic?: string;
+  } | null>(null);
+  const [copiedDiag, setCopiedDiag] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [settingsData, setSettingsData] = useState<any>(null);
   const [persianOpts, setPersianOpts] = useState({
     rtl: true,
     shaping: true,
@@ -74,10 +95,46 @@ export default function FarsiForgeDashboard() {
     GetToolStatus()
       .then((status) => setToolStatus(status))
       .catch((err) => console.error("GetToolStatus error:", err));
+
+    GetEngineCapabilities()
+      .then((caps) => setEngineCaps(caps))
+      .catch((err) => console.error("GetEngineCapabilities error:", err));
+
+    const cancelProgress = EventsOn("pipeline:progress", (evt: any) => {
+      if (evt && typeof evt.percent === "number") {
+        setProgress(evt.percent);
+        if (evt.stage_fa) setStageName(evt.stage_fa);
+        if (evt.detail) setStageDetail(evt.detail);
+      }
+    });
+
+    return () => {
+      if (cancelProgress) cancelProgress();
+    };
   }, []);
 
+  const currentCap = useMemo(() => {
+    if (!gameInfo?.engine) return null;
+    const match = engineCaps.find(c => c.engine.toLowerCase() === gameInfo.engine.toLowerCase());
+    if (match) return match;
+    return {
+      engine: gameInfo.engine,
+      display_name: gameInfo.engine,
+      can_detect: true,
+      can_extract: true,
+      can_inject: true,
+      archive_rebuild: false,
+      font_support: false,
+      patch_install: true,
+      status: "custom",
+      extraction_notes: "موتور اختصاصی یا شناسایی‌شده بر مبنای قوانین عمومی",
+      injection_notes: "تزریق بر مبنای فایل‌های متنی پشتیبانی می‌شود",
+      required_tools: []
+    } as core.EngineCapability;
+  }, [gameInfo, engineCaps]);
+
   const engineInfo = {
-    engine: gameInfo ? gameInfo.engine : "---",
+    engine: gameInfo ? (currentCap?.display_name || gameInfo.engine) : "---",
     backend: gameInfo ? gameInfo.backend : "---",
     confidence: gameInfo ? (gameInfo.confidence * 100).toFixed(0) + "%" : "---",
     files: translations.length > 0 
@@ -85,8 +142,8 @@ export default function FarsiForgeDashboard() {
       : (gameInfo?.evidence?.length ? `${gameInfo.evidence.length} نشانه شناسایی` : "---")
   };
 
-  const isDetectionOnly = gameInfo ? ["ue3", "source"].includes(gameInfo.engine.toLowerCase()) : false;
-  const isExtractOnly = gameInfo ? ["sage", "goldsrc", "source2", "factorio", "zomboid", "rage"].includes(gameInfo.engine.toLowerCase()) : false;
+  const isDetectionOnly = currentCap ? !currentCap.can_extract : false;
+  const isExtractOnly = currentCap ? (currentCap.can_extract && !currentCap.can_inject) : false;
 
   // Filtered entry list for the translate step: case-insensitive search
   // across id/source/translation/file/notes plus a status filter ("qa"
@@ -149,6 +206,41 @@ export default function FarsiForgeDashboard() {
     }
   };
 
+  const openSettings = async () => {
+    try {
+      const s = await GetSettings();
+      setSettingsData(s);
+      setShowSettingsModal(true);
+    } catch (err) {
+      setNotification({
+        type: "error",
+        title: "خطا در بارگذاری تنظیمات",
+        message: String(err),
+      });
+    }
+  };
+
+  const handleSaveSettings = async () => {
+    if (!settingsData) return;
+    try {
+      await SaveSettings(settingsData);
+      setShowSettingsModal(false);
+      setNotification({
+        type: "success",
+        title: "تنظیمات ذخیره شد",
+        message: "تنظیمات پیکربندی برنامه با موفقیت ذخیره شد.",
+      });
+      const status = await GetToolStatus();
+      setToolStatus(status);
+    } catch (err) {
+      setNotification({
+        type: "error",
+        title: "خطا در ذخیره تنظیمات",
+        message: String(err),
+      });
+    }
+  };
+
   const handleExport = async () => {
     if (!gameInfo?.game_root) return;
     try {
@@ -156,10 +248,19 @@ export default function FarsiForgeDashboard() {
       const path = await SelectSaveFile(defaultName);
       if (!path) return;
       await ExportTranslations(gameInfo.game_root, path);
-      alert(`فایل ترجمه با موفقیت ذخیره شد:\n${path}`);
+      setNotification({
+        type: "success",
+        title: "صادر شد",
+        message: `فایل ترجمه با موفقیت ذخیره شد:\n${path}`,
+      });
     } catch (e) {
       console.error(e);
-      alert(`خطا در صدور فایل: ${e}`);
+      setNotification({
+        type: "error",
+        title: "خطا در صدور فایل",
+        message: String(e),
+        diagnostic: `Export error: ${String(e)}\nGame: ${gameInfo?.game_name}\nRoot: ${gameInfo?.game_root}`,
+      });
     }
   };
 
@@ -178,10 +279,20 @@ export default function FarsiForgeDashboard() {
           msg += `\n... و ${res.Errors.length - 5} خطای دیگر`;
         }
       }
-      alert(msg);
+      setNotification({
+        type: res.Rejected > 0 ? "warning" : "success",
+        title: res.Rejected > 0 ? "ورود فایل با خطا یا موارد رد شده" : "فایل با موفقیت وارد شد",
+        message: msg,
+        diagnostic: res.Errors && res.Errors.length > 0 ? res.Errors.join("\n") : undefined,
+      });
     } catch (e) {
       console.error(e);
-      alert(`خطا در ورود فایل: ${e}`);
+      setNotification({
+        type: "error",
+        title: "خطا در ورود فایل",
+        message: String(e),
+        diagnostic: `Import error: ${String(e)}\nGame: ${gameInfo?.game_name}\nRoot: ${gameInfo?.game_root}`,
+      });
     }
   };
 
@@ -192,10 +303,19 @@ export default function FarsiForgeDashboard() {
       await SaveTranslations(gameInfo.game_root, translations);
       const proj = await GetProject(gameInfo.game_root);
       setTranslations(proj.entries || []);
-      alert("تمام ترجمه‌ها و یادداشت‌های QA با موفقیت ذخیره شدند.");
+      setNotification({
+        type: "success",
+        title: "ذخیره شد",
+        message: "تمام ترجمه‌ها و وضعیت‌های QA با موفقیت ذخیره شدند.",
+      });
     } catch (e) {
       console.error(e);
-      alert(`خطا در ذخیره: ${e}`);
+      setNotification({
+        type: "error",
+        title: "خطا در ذخیره ترجمه‌ها",
+        message: String(e),
+        diagnostic: `Save error: ${String(e)}\nGame: ${gameInfo?.game_name}`,
+      });
     } finally {
       setIsSaving(false);
     }
@@ -208,7 +328,6 @@ export default function FarsiForgeDashboard() {
     } catch (e) { console.error(e); }
   };
 
-
   const handleNextStep = async (next: Step) => {
     const selectedGame = gameInfo;
     if (next === "extract" && !dirPath.trim()) {
@@ -218,9 +337,12 @@ export default function FarsiForgeDashboard() {
       return;
     }
     setIsProcessing(true);
-    setProgress(50);
+    setProgress(10);
+    setStageName("در حال آماده‌سازی عملیات...");
+    setStageDetail("");
     try {
       if (next === "extract") {
+        setStageName("در حال شناسایی موتور بازی...");
         const info = await DetectEngine(dirPath);
         setGameInfo(info);
       } else if (next === "translate") {
@@ -239,10 +361,26 @@ export default function FarsiForgeDashboard() {
       setCurrentStep(next);
     } catch (e) {
       console.error(e);
-      alert(String(e));
+      const diagReport = [
+        `Step: ${next}`,
+        `Engine: ${selectedGame?.engine || "N/A"}`,
+        `Game Name: ${selectedGame?.game_name || "N/A"}`,
+        `Game Root: ${selectedGame?.game_root || dirPath || "N/A"}`,
+        `Backend: ${selectedGame?.backend || "N/A"}`,
+        `Error: ${String(e)}`,
+      ].join("\n");
+
+      setNotification({
+        type: "error",
+        title: `خطا در مرحله ${next}`,
+        message: String(e),
+        diagnostic: diagReport,
+      });
     } finally {
       setIsProcessing(false);
       setProgress(0);
+      setStageName("");
+      setStageDetail("");
     }
   };
 
@@ -254,21 +392,47 @@ export default function FarsiForgeDashboard() {
         
         {/* Sidebar / Info Panel */}
         <div className="lg:col-span-4 flex flex-col gap-5">
-          <div className="flex items-center gap-4 mb-2">
-            <div className="p-3 bg-primary/10 rounded-2xl border border-primary/20 backdrop-blur-md">
-              <Cpu className="w-8 h-8 text-primary" />
+          <div className="flex items-center justify-between gap-4 mb-2">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-primary/10 rounded-2xl border border-primary/20 backdrop-blur-md">
+                <Cpu className="w-8 h-8 text-primary" />
+              </div>
+              <div>
+                <h1 className="text-3xl font-black tracking-tight text-white">FarsiForge</h1>
+                <p className="text-zinc-400 font-medium text-sm tracking-widest uppercase">Persian Game Engine</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-3xl font-black tracking-tight text-white">FarsiForge</h1>
-              <p className="text-zinc-400 font-medium text-sm tracking-widest uppercase">Persian Game Engine</p>
-            </div>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={openSettings}
+              title="تنظیمات برنامه"
+              className="border-zinc-800 bg-zinc-900/60 hover:bg-zinc-800 text-zinc-300 hover:text-white shrink-0"
+            >
+              <Settings2 className="w-4 h-4" />
+            </Button>
           </div>
 
           <Card className="bg-zinc-950/40 backdrop-blur-xl border-zinc-800/50 shadow-2xl">
             <CardHeader className="py-3 px-4">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Box className="w-4 h-4 text-indigo-400" /> 
-                مشخصات بازی
+              <CardTitle className="text-base flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Box className="w-4 h-4 text-indigo-400" /> 
+                  <span>مشخصات بازی</span>
+                </div>
+                {currentCap && currentStep !== "detect" && (
+                  <Badge variant="outline" className={`text-xs ${
+                    currentCap.status === "full"
+                      ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/20"
+                      : currentCap.status === "extract-only"
+                      ? "bg-amber-500/10 text-amber-300 border-amber-500/20"
+                      : currentCap.status === "detection-only"
+                      ? "bg-rose-500/10 text-rose-300 border-rose-500/20"
+                      : "bg-blue-500/10 text-blue-300 border-blue-500/20"
+                  }`}>
+                    {currentCap.status === "full" ? "پشتیبانی کامل" : currentCap.status === "extract-only" ? "فقط استخراج" : currentCap.status === "detection-only" ? "فقط شناسایی" : "موتور عمومی"}
+                  </Badge>
+                )}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 px-4 pb-4 pt-0 text-sm">
@@ -276,6 +440,25 @@ export default function FarsiForgeDashboard() {
                 <span className="text-zinc-400">موتور بازی</span>
                 <Badge variant="outline" className="bg-indigo-500/10 text-indigo-300 border-indigo-500/20">{currentStep !== "detect" ? engineInfo.engine : "---"}</Badge>
               </div>
+              {currentCap && currentStep !== "detect" && (
+                <div className="py-2 border-b border-zinc-800/50 space-y-1.5">
+                  <span className="text-xs text-zinc-400 block">قابلیت‌های ماژول</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    <span className={`text-[11px] px-1.5 py-0.5 rounded border ${currentCap.can_extract ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : "bg-zinc-800/50 text-zinc-500 border-zinc-700/50"}`}>
+                      {currentCap.can_extract ? "✓ استخراج" : "✗ استخراج"}
+                    </span>
+                    <span className={`text-[11px] px-1.5 py-0.5 rounded border ${currentCap.can_inject ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : "bg-zinc-800/50 text-zinc-500 border-zinc-700/50"}`}>
+                      {currentCap.can_inject ? "✓ تزریق" : "✗ تزریق"}
+                    </span>
+                    <span className={`text-[11px] px-1.5 py-0.5 rounded border ${currentCap.archive_rebuild ? "bg-purple-500/10 text-purple-400 border-purple-500/20" : "bg-zinc-800/50 text-zinc-500 border-zinc-700/50"}`}>
+                      {currentCap.archive_rebuild ? "✓ بازسازی آرشیو" : "فقط فایل باز (Loose)"}
+                    </span>
+                    <span className={`text-[11px] px-1.5 py-0.5 rounded border ${currentCap.font_support ? "bg-indigo-500/10 text-indigo-400 border-indigo-500/20" : "bg-zinc-800/50 text-zinc-500 border-zinc-700/50"}`}>
+                      {currentCap.font_support ? "✓ فونت" : "✗ فونت"}
+                    </span>
+                  </div>
+                </div>
+              )}
               <div className="flex justify-between items-center py-1.5 border-b border-zinc-800/50">
                 <span className="text-zinc-400">پلتفرم پردازشی</span>
                 <span className="font-mono text-zinc-300 text-xs">{currentStep !== "detect" ? engineInfo.backend : "---"}</span>
@@ -448,6 +631,11 @@ export default function FarsiForgeDashboard() {
                     <div className="space-y-2">
                       <h2 className="text-2xl font-bold text-white">استخراج دیتابیس متن‌ها</h2>
                       <p className="text-zinc-400 max-w-md mx-auto">موتور {engineInfo.engine} با موفقیت شناسایی شد. اکنون فایل‌های متنی و دارایی‌ها (Assets) را استخراج می‌کنیم.</p>
+                      {currentCap?.extraction_notes && (
+                        <div className="p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-lg text-indigo-300 text-xs max-w-md mx-auto text-right">
+                          ℹ <strong>راهنمای ماژول:</strong> {currentCap.extraction_notes}
+                        </div>
+                      )}
                       {isDetectionOnly && (
                         <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-amber-300 text-sm max-w-md mx-auto">
                           ⚠ موتور {engineInfo.engine} در وضعیت فقط-شناسایی (Detection-Only) است؛ ماژول استخراج اختصاصی برای آن در دسترس نیست.
@@ -459,7 +647,10 @@ export default function FarsiForgeDashboard() {
                       {isProcessing ? (
                         <div className="space-y-2 w-full">
                           <Progress value={progress} className="h-2 bg-zinc-800" />
-                          <p className="text-xs text-zinc-500 text-center animate-pulse">در حال استخراج متون و دارایی‌های بازی...</p>
+                          <div className="text-center space-y-1">
+                            <p className="text-xs text-purple-300 font-medium animate-pulse">{stageName || "در حال استخراج متون و دارایی‌های بازی..."}</p>
+                            {stageDetail && <p className="text-[11px] text-zinc-500 font-mono">{stageDetail}</p>}
+                          </div>
                         </div>
                       ) : (
                         <Button onClick={() => handleNextStep("translate")} disabled={isDetectionOnly} size="lg" className="w-full text-lg h-14 bg-purple-600 hover:bg-purple-700 shadow-[0_0_20px_rgba(168,85,247,0.3)] transition-all">
@@ -670,13 +861,21 @@ export default function FarsiForgeDashboard() {
                     <div className="space-y-2">
                       <h2 className="text-2xl font-bold text-white">تزریق و اعمال تغییرات</h2>
                       <p className="text-zinc-400 max-w-md mx-auto">ترجمه‌ها روی کپی‌های موقت فایل‌های قابل پشتیبانی اعمال می‌شوند؛ فایل اصلی بازی در این مرحله تغییر نمی‌کند.</p>
+                      {currentCap?.injection_notes && (
+                        <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-emerald-300 text-xs max-w-md mx-auto text-right">
+                          ℹ <strong>راهنمای ماژول:</strong> {currentCap.injection_notes}
+                        </div>
+                      )}
                     </div>
                     
                     <div className="w-full max-w-md flex flex-col gap-4">
                       {isProcessing ? (
                         <div className="space-y-2 w-full">
                           <Progress value={progress} className="h-2 bg-zinc-800" />
-                          <p className="text-xs text-zinc-500 text-center animate-pulse">در حال آماده‌سازی فایل‌های پچ ...</p>
+                          <div className="text-center space-y-1">
+                            <p className="text-xs text-emerald-300 font-medium animate-pulse">{stageName || "در حال آماده‌سازی فایل‌های پچ ..."}</p>
+                            {stageDetail && <p className="text-[11px] text-zinc-500 font-mono">{stageDetail}</p>}
+                          </div>
                         </div>
                       ) : (
                         <Button onClick={() => handleNextStep("patch")} size="lg" className="w-full text-lg h-14 bg-emerald-600 hover:bg-emerald-700 shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-all">
@@ -713,7 +912,10 @@ export default function FarsiForgeDashboard() {
                       {isProcessing ? (
                         <div className="space-y-2 w-full">
                           <Progress value={progress} className="h-2 bg-zinc-800" />
-                          <p className="text-xs text-zinc-500 text-center animate-pulse">در حال ساخت نصاب...</p>
+                          <div className="text-center space-y-1">
+                            <p className="text-xs text-orange-300 font-medium animate-pulse">{stageName || "در حال ساخت نصاب..."}</p>
+                            {stageDetail && <p className="text-[11px] text-zinc-500 font-mono">{stageDetail}</p>}
+                          </div>
                         </div>
                       ) : (
                         <Button onClick={() => handleNextStep("success")} size="lg" className="w-full text-lg h-14 bg-orange-600 hover:bg-orange-700 shadow-[0_0_20px_rgba(249,115,22,0.3)] transition-all">
@@ -758,6 +960,171 @@ export default function FarsiForgeDashboard() {
           </Card>
         </div>
       </div>
+
+      {/* In-app Notification / Toast Banner */}
+      <AnimatePresence>
+        {notification && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.98 }}
+            className={`fixed top-6 left-1/2 -translate-x-1/2 z-50 max-w-xl w-[90%] p-4 rounded-xl shadow-2xl backdrop-blur-xl border flex items-start gap-3.5 ${
+              notification.type === "success"
+                ? "bg-emerald-950/90 border-emerald-500/30 text-emerald-200"
+                : notification.type === "error"
+                ? "bg-rose-950/90 border-rose-500/30 text-rose-200"
+                : notification.type === "warning"
+                ? "bg-amber-950/90 border-amber-500/30 text-amber-200"
+                : "bg-blue-950/90 border-blue-500/30 text-blue-200"
+            }`}
+            dir="rtl"
+          >
+            {notification.type === "success" && <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />}
+            {notification.type === "error" && <XCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />}
+            {notification.type === "warning" && <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />}
+            {notification.type === "info" && <Info className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />}
+
+            <div className="flex-1 text-sm space-y-1">
+              <div className="font-bold">{notification.title}</div>
+              <div className="text-xs whitespace-pre-wrap opacity-90 leading-relaxed">{notification.message}</div>
+              {notification.diagnostic && (
+                <div className="pt-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      if (notification.diagnostic) {
+                        navigator.clipboard.writeText(notification.diagnostic);
+                        setCopiedDiag(true);
+                        setTimeout(() => setCopiedDiag(false), 2000);
+                      }
+                    }}
+                    className="text-xs h-7 gap-1.5 border-zinc-700 bg-zinc-900/60 hover:bg-zinc-800 text-zinc-200"
+                  >
+                    {copiedDiag ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedDiag ? "گزارش خطا کپی شد" : "کپی گزارش کامل خطا (Diagnostics)"}</span>
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={() => setNotification(null)}
+              className="text-zinc-400 hover:text-white transition-colors p-1"
+              title="بستن"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Settings Modal */}
+      <AnimatePresence>
+        {showSettingsModal && settingsData && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-zinc-950 border border-zinc-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5 text-right"
+              dir="rtl"
+            >
+              <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+                <div className="flex items-center gap-2">
+                  <Settings2 className="w-5 h-5 text-indigo-400" />
+                  <h3 className="text-lg font-bold text-white">تنظیمات FarsiForge</h3>
+                </div>
+                <button
+                  onClick={() => setShowSettingsModal(false)}
+                  className="text-zinc-400 hover:text-white"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-4 text-sm">
+                <div className="space-y-1.5">
+                  <label className="text-xs text-zinc-400">مسیر دایرکتوری ابزارها (Tools):</label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={settingsData.tools_dir || ""}
+                      onChange={(e) => setSettingsData({ ...settingsData, tools_dir: e.target.value })}
+                      placeholder="مسیر پیش‌فرض ابزارها (اختیاری)"
+                      className="bg-zinc-900 border-zinc-800 text-xs text-left font-mono"
+                      dir="ltr"
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={async () => {
+                        const dir = await SelectDirectory();
+                        if (dir) setSettingsData({ ...settingsData, tools_dir: dir });
+                      }}
+                    >
+                      انتخاب
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs text-zinc-400">مسیر خروجی پچ‌ها (Output):</label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={settingsData.output_dir || ""}
+                      onChange={(e) => setSettingsData({ ...settingsData, output_dir: e.target.value })}
+                      placeholder="مسیر خروجی پیش‌فرض (اختیاری)"
+                      className="bg-zinc-900 border-zinc-800 text-xs text-left font-mono"
+                      dir="ltr"
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={async () => {
+                        const dir = await SelectDirectory();
+                        if (dir) setSettingsData({ ...settingsData, output_dir: dir });
+                      }}
+                    >
+                      انتخاب
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs text-zinc-400">نام پیش‌فرض مترجم / تیم (Author):</label>
+                  <Input
+                    value={settingsData.default_author || ""}
+                    onChange={(e) => setSettingsData({ ...settingsData, default_author: e.target.value })}
+                    placeholder="مثال: FarsiForge Team"
+                    className="bg-zinc-900 border-zinc-800 text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-3 border-t border-zinc-800">
+                <Button
+                  variant="ghost"
+                  onClick={() => setShowSettingsModal(false)}
+                  className="text-zinc-400 hover:text-white"
+                >
+                  انصراف
+                </Button>
+                <Button
+                  onClick={handleSaveSettings}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white"
+                >
+                  ذخیره تنظیمات
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

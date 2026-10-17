@@ -18,6 +18,14 @@ export function Extract(arg1) {
   return window['go']['main']['App']['Extract'](arg1);
 }
 
+export function GetEngineCapabilities() {
+  return window['go']['main']['App']['GetEngineCapabilities']();
+}
+
+export function GetEngineCapability(arg1) {
+  return window['go']['main']['App']['GetEngineCapability'](arg1);
+}
+
 export function GetProject(arg1) {
   return window['go']['main']['App']['GetProject'](arg1);
 }

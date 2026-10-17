@@ -34,6 +34,40 @@ export namespace core {
 	        this.metadata = source["metadata"];
 	    }
 	}
+	export class EngineCapability {
+	    engine: string;
+	    display_name: string;
+	    can_detect: boolean;
+	    can_extract: boolean;
+	    can_inject: boolean;
+	    archive_rebuild: boolean;
+	    font_support: boolean;
+	    patch_install: boolean;
+	    status: string;
+	    extraction_notes?: string;
+	    injection_notes?: string;
+	    required_tools?: string[];
+
+	    static createFrom(source: any = {}) {
+	        return new EngineCapability(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.engine = source["engine"];
+	        this.display_name = source["display_name"];
+	        this.can_detect = source["can_detect"];
+	        this.can_extract = source["can_extract"];
+	        this.can_inject = source["can_inject"];
+	        this.archive_rebuild = source["archive_rebuild"];
+	        this.font_support = source["font_support"];
+	        this.patch_install = source["patch_install"];
+	        this.status = source["status"];
+	        this.extraction_notes = source["extraction_notes"];
+	        this.injection_notes = source["injection_notes"];
+	        this.required_tools = source["required_tools"];
+	    }
+	}
 	export class PersianOptions {
 	    reshape: boolean;
 	    bidi_reorder: boolean;
