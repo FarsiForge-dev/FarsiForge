@@ -10,6 +10,10 @@ export function BuildPatcher(arg1, arg2) {
   return window['go']['main']['App']['BuildPatcher'](arg1, arg2);
 }
 
+export function CheckOperationPrerequisites(arg1, arg2) {
+  return window['go']['main']['App']['CheckOperationPrerequisites'](arg1, arg2);
+}
+
 export function ClassifyProjectEntries(arg1) {
   return window['go']['main']['App']['ClassifyProjectEntries'](arg1);
 }
@@ -24,6 +28,10 @@ export function ExportTranslations(arg1, arg2) {
 
 export function Extract(arg1) {
   return window['go']['main']['App']['Extract'](arg1);
+}
+
+export function GetDetailedToolDiagnostics() {
+  return window['go']['main']['App']['GetDetailedToolDiagnostics']();
 }
 
 export function GetEngineCapabilities() {
@@ -60,6 +68,10 @@ export function InstallPythonPackage(arg1) {
 
 export function LaunchGame(arg1, arg2) {
   return window['go']['main']['App']['LaunchGame'](arg1, arg2);
+}
+
+export function RefreshTools() {
+  return window['go']['main']['App']['RefreshTools']();
 }
 
 export function SavePersianOptions(arg1, arg2) {

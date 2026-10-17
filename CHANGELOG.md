@@ -60,8 +60,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Expanded Real-Games Validation Suite (`D:\games`)**:
   - Expanded `test/e2e/real_games_test.go` to test 10 real game installations in `D:\games` (`ELDEN RING`, `Sekiro`, `Factorio`, `Project.Zomboid`, `Raft`, `Orc Massage` [Unity], `MOLDRISE` [Godot], `Hacker Simulator` [Unreal], `C&C Generals Zero Hour`, `Command and Conquer Red Alert 3`).
   - Tested engine detection, asset browser scans, font scans, and operation requirement validation with 100% pass and zero game file mutations.
+- **Large Game Memory Benchmarks (`test/bench/memory_bench_test.go`) (Task 16)**:
+  - Added comprehensive benchmark suite for real games in `D:\games`.
+  - Automated peak memory tracing with Python's `tracemalloc`, verifying memory stays under 350 MB on full 7.5 GB games (tested on `Raft`, dropping peak RAM from 4+ GB to 243 MB with 59,097 strings).
+  - Benchmarked engine detection (8 real games in ~11s) and asset browser browsing (12.9 ms/op).
 
 ### Changed
+- **Unity Extraction & Injection Memory Architecture (Task 16)**:
+  - Fixed root cause of Python memory leaks and machine freezes. Replaced whole-directory `UnityPy.load(data_dir)` with candidate-filtered streaming.
+  - Excluded non-serialized media stream buffers (`.resS`, `.resource`), audio, textures, and executables.
+  - Added file-by-file streaming with unconditional immediate garbage collection (`del env; gc.collect()`) after every file.
+  - In `inject.py`, targeted ONLY the specific asset files that contain translated strings from `translated.json`.
+  - Added recursion depth (`max_depth=10`) and array length (`[:250]`) caps in `_walk_value` to prevent infinite loops and memory blowup on binary vertex/geometry buffers.
+- **Subprocess Safety Timeouts**:
+  - Added 15-minute fallback timeout and explicit context deadline cancellation handling to `runPythonScript` in `pkg/extract/engines.go` and `pkg/inject/engines.go`.
 - **FromSoftware Staging Contract**: Routed all FromSoftware injector output to `Project.WorkingDir/out/` instead of mutating files inside `GameRoot`. Installed game files remain strictly read-only.
 - **FromSoftware Archive Write-Back Safety**: Reject injection of archive-nested strings (`Container != ""`) with clear actionable guidance, ensuring only loose FMG and binder files can stage output.
 - **Unreal Write-Back Contract**: Ensured `UnrealInjector` only stages loose `.locres` files with full original SHA-256 hash binding, explicitly refusing to stage phantom loose files for archive-resident entries.

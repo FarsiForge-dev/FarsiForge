@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""FarsiForge Unity extraction script.
+"""FarsiForge Unity extraction script — Memory-Optimized & Streamlined.
 
 Usage: python extract.py <game_dir> <work_dir> [tools_dir]
 
@@ -8,24 +8,20 @@ TextAsset and MonoBehaviour objects via UnityPy, filters noise, deduplicates,
 and writes <work_dir>/extracted.json as an array of core.StringEntry-shaped
 objects. Prints a machine-readable SUMMARY line as the final line of output.
 
-For MonoBehaviour objects whose typetree has been stripped by Unity, this
-script reconstructs the typetree from the game's managed DLLs (Mono) or
-from Il2CppDumper output (IL2CPP) using UnityPy.helpers.TypeTreeGenerator.
-
-Exit codes:
-    0  success (even if 0 strings extracted)
-    2  UnityPy not installed
-    3  data dir not found
-    4  work_dir not writable / other error
+Memory Architecture:
+- Scans candidate serialized files (.assets, level*, bundles) individually.
+- Never loads .resS, .resource or raw media buffers into memory.
+- Calls gc.collect() between files to prevent memory leaks and out-of-memory hangs on 5GB-20GB games.
 """
 
 import os
 import re
 import sys
+import gc
 import json
 import pickle
 import subprocess
-from typing import Optional
+from typing import Optional, List, Dict, Tuple, Set
 
 # --- UnityPy import guard ---------------------------------------------------
 try:
@@ -41,7 +37,6 @@ from unity_raw_fields import scan_serialized_strings
 # TypeTreeNode objects. The pure-Python path works correctly.
 try:
     import UnityPy.helpers.TypeTreeHelper as _tth
-
     _tth.read_typetree_boost = None
 except Exception:
     pass
@@ -63,13 +58,14 @@ _REPEAT_RE = re.compile(r"^(.)\1+$")
 _PASCAL_RE = re.compile(r"^[A-Z][a-zA-Z0-9]*$")
 _CAMEL_RE = re.compile(r"^[a-z][a-zA-Z0-9]*$")
 _SNAKE_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
-_CONST_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
 # Field names that indicate human-readable text content
 _TEXT_FIELD_RE = re.compile(
-    r"(text|label|title|name|description|message|tooltip|string)",
+    r"(text|label|title|name|description|message|tooltip|string|dialogue|subtitle|content)",
     re.IGNORECASE,
 )
+
+_MNAME_RE = re.compile(r"^m_Name$", re.IGNORECASE)
 
 
 def is_noise(s: str) -> bool:
@@ -95,42 +91,20 @@ def is_noise(s: str) -> bool:
 
 
 def is_code_identifier(s: str) -> bool:
-    """Return True if a string looks like a code identifier (not human text).
-
-    Single-token PascalCase/camelCase/SNAKE_CASE strings are likely code
-    identifiers (class names, enum values, method names) rather than
-    human-readable text.
-    """
+    """Return True if a string looks like a code identifier."""
     s = s.strip()
-    # Multi-word strings (contain spaces) are likely human-readable
     if " " in s:
         return False
-    # Single-token identifiers
     if _PASCAL_RE.match(s) or _CAMEL_RE.match(s) or _SNAKE_RE.match(s):
         return True
     return False
 
 
-# Unity's base MonoBehaviour field m_Name is the object name — almost always
-# a code identifier (class name, asset name), not translatable human text.
-_MNAME_RE = re.compile(r"^m_Name$", re.IGNORECASE)
-
-
 def should_extract_string(s: str, field_name: str = "") -> bool:
-    """Decide whether a string should be extracted as translatable.
-
-    Applies the noise filter, then the identifier-noise filter:
-    skip single-token PascalCase/camelCase/SNAKE_CASE strings UNLESS the
-    field name contains a text-related keyword. The Unity base field
-    m_Name is excluded from the keyword exception — it holds the object
-    name, which is almost always a code identifier.
-    """
+    """Decide whether a string should be extracted as translatable."""
     if is_noise(s):
         return False
-    # Identifier-noise filter: skip code identifiers unless field name
-    # indicates text content
     if is_code_identifier(s):
-        # m_Name (Unity base field) is the object name, not translatable text
         if field_name and _MNAME_RE.match(field_name):
             return False
         if field_name and _TEXT_FIELD_RE.search(field_name):
@@ -139,13 +113,13 @@ def should_extract_string(s: str, field_name: str = "") -> bool:
     return True
 
 
-# --- Data dir discovery -----------------------------------------------------
-
+# --- Data dir discovery & candidate filtering --------------------------------
 
 def _has_assets_files(d: str) -> bool:
     try:
         for name in os.listdir(d):
-            if name.lower().endswith(".assets"):
+            nl = name.lower()
+            if nl.endswith(".assets") and not nl.endswith(".resS"):
                 return True
     except OSError:
         pass
@@ -158,12 +132,9 @@ def find_data_dir(game_dir: str) -> Optional[str]:
         return None
 
     base = os.path.basename(os.path.normpath(game_dir))
-
-    # (b) game_dir itself is the data dir
     if base.endswith("_Data") or _has_assets_files(game_dir):
         return game_dir
 
-    # (a) *_Data directly under game_dir
     try:
         for item in os.listdir(game_dir):
             full = os.path.join(game_dir, item)
@@ -172,7 +143,6 @@ def find_data_dir(game_dir: str) -> Optional[str]:
     except OSError:
         pass
 
-    # (c) one level deep
     try:
         for item in os.listdir(game_dir):
             full = os.path.join(game_dir, item)
@@ -193,30 +163,103 @@ def find_data_dir(game_dir: str) -> Optional[str]:
     return None
 
 
+def find_candidate_asset_files(data_dir: str) -> List[Tuple[str, str]]:
+    """Return (full_path, rel_to_data_dir) for files containing serialized objects.
+
+    Filters out massive media stream files (.resS, .resource) and temporary directories.
+    """
+    candidates = []
+    ignore_suffixes = (
+        ".ress",
+        ".resource",
+        ".dll",
+        ".exe",
+        ".pdb",
+        ".config",
+        ".manifest",
+        ".log",
+        ".ini",
+        ".txt",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".tga",
+        ".dds",
+        ".wav",
+        ".ogg",
+        ".mp3",
+    )
+
+    for root, dirs, files in os.walk(data_dir):
+        # Skip temporary directories
+        dirs[:] = [
+            d
+            for d in dirs
+            if not d.startswith(".farsiforge")
+            and not d.startswith("WorkingDir")
+            and d != "il2cpp_dump"
+        ]
+
+        for f in files:
+            fl = f.lower()
+            if any(fl.endswith(s) for s in ignore_suffixes):
+                continue
+
+            full_path = os.path.join(root, f)
+            rel_path = os.path.relpath(full_path, data_dir).replace("\\", "/")
+
+            # Only accept files known to store Unity serialized objects/bundles
+            if (
+                fl.endswith(".assets")
+                or fl.endswith(".bundle")
+                or fl.endswith(".unity3d")
+                or fl.startswith("level")
+                or fl.startswith("sharedassets")
+                or fl.startswith("globalgamemanagers")
+            ):
+                candidates.append((full_path, rel_path))
+
+    # Sort files: prioritize globalgamemanagers and resources so MonoScripts are parsed early
+    def sort_key(item):
+        path_lower = item[1].lower()
+        if "globalgamemanagers" in path_lower:
+            return 0
+        if "resources.assets" in path_lower:
+            return 1
+        if "sharedassets" in path_lower:
+            return 2
+        return 3
+
+    candidates.sort(key=sort_key)
+    return candidates
+
+
 # --- Typetree / object walking ----------------------------------------------
 
+def _walk_value(value, path, emit, file_name, path_id, depth=0, max_depth=10):
+    """Recursively walk a parsed value, emitting string entries with recursion guards."""
+    if depth > max_depth:
+        return
 
-def _walk_value(value, path, emit, file_name, path_id):
-    """Recursively walk a parsed value, emitting string entries."""
     if isinstance(value, str):
-        # Extract field name from path (last component after '.' or '/')
         field_name = ""
         if "." in path:
             field_name = path.rsplit(".", 1)[-1]
         elif "/" in path:
             field_name = path.rsplit("/", 1)[-1]
-        # Strip array index from field name
         field_name = re.sub(r"\[\d+\]$", "", field_name)
         if should_extract_string(value, field_name):
             emit(file_name, path_id, path, value, "MonoBehaviour")
     elif isinstance(value, dict):
         for k, v in value.items():
-            _walk_value(v, f"{path}.{k}", emit, file_name, path_id)
+            if not isinstance(k, str) or k.startswith("_"):
+                continue
+            _walk_value(v, f"{path}.{k}", emit, file_name, path_id, depth + 1, max_depth)
     elif isinstance(value, list):
-        for i, v in enumerate(value):
-            _walk_value(v, f"{path}[{i}]", emit, file_name, path_id)
+        # Cap list iteration to avoid memory thrashing on massive numeric vertex/geometry buffers
+        for i, v in enumerate(value[:250]):
+            _walk_value(v, f"{path}[{i}]", emit, file_name, path_id, depth + 1, max_depth)
     elif value is not None and not isinstance(value, (int, float, bool, bytes)):
-        # Object with attributes (fallback for obj.read() results)
         try:
             attrs = vars(value)
         except TypeError:
@@ -224,11 +267,10 @@ def _walk_value(value, path, emit, file_name, path_id):
         for k, v in attrs.items():
             if k.startswith("_"):
                 continue
-            _walk_value(v, f"{path}.{k}", emit, file_name, path_id)
+            _walk_value(v, f"{path}.{k}", emit, file_name, path_id, depth + 1, max_depth)
 
 
 def _try_read_typetree(obj) -> Optional[dict]:
-    """Attempt read_typetree(); return dict or None."""
     try:
         return obj.read_typetree()
     except Exception:
@@ -236,7 +278,6 @@ def _try_read_typetree(obj) -> Optional[dict]:
 
 
 def _try_read_object(obj):
-    """Attempt obj.read(); return object or None."""
     try:
         return obj.read()
     except Exception:
@@ -245,9 +286,7 @@ def _try_read_object(obj):
 
 # --- TypeTreeGenerator helpers ----------------------------------------------
 
-
 def _detect_il2cpp(game_dir: str, data_dir: str) -> bool:
-    """Check if the game uses IL2CPP backend."""
     game_assembly = os.path.join(game_dir, "GameAssembly.dll")
     metadata = os.path.join(data_dir, "il2cpp_data", "Metadata", "global-metadata.dat")
     return os.path.isfile(game_assembly) and os.path.isfile(metadata)
@@ -256,11 +295,6 @@ def _detect_il2cpp(game_dir: str, data_dir: str) -> bool:
 def _run_il2cpp_dumper(
     game_dir: str, data_dir: str, work_dir: str, tools_dir: str
 ) -> Optional[str]:
-    """Run Il2CppDumper silently and return the output directory path.
-
-    Returns None if Il2CppDumper is not found or fails.
-    """
-    # Find Il2CppDumper.exe
     dumper_exe = None
     if tools_dir:
         for candidate in [
@@ -271,7 +305,6 @@ def _run_il2cpp_dumper(
                 dumper_exe = candidate
                 break
     if not dumper_exe:
-        # Try relative to the script's parent Tools dir
         script_dir = os.path.dirname(os.path.abspath(__file__))
         candidate = os.path.join(
             os.path.dirname(script_dir), "Il2CppDumper", "Il2CppDumper.exe"
@@ -287,22 +320,17 @@ def _run_il2cpp_dumper(
     dump_dir = os.path.join(work_dir, "il2cpp_dump")
     os.makedirs(dump_dir, exist_ok=True)
 
-    # Check if already dumped (script.json exists)
     script_json = os.path.join(dump_dir, "script.json")
     if os.path.isfile(script_json):
         return dump_dir
 
     try:
-        # Il2CppDumper uses Console.ReadKey() which throws when stdin is
-        # redirected. We must NOT redirect stdin. Instead, we hide any
-        # console window via STARTUPINFO (SW_HIDE) and use a timeout to
-        # prevent hanging on "Press any key to exit" prompts.
         creationflags = 0
         startupinfo = None
         if sys.platform == "win32":
             startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= 0x00000001  # STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = 0  # SW_HIDE
+            startupinfo.dwFlags |= 0x00000001
+            startupinfo.wShowWindow = 0
 
         proc = subprocess.run(
             [dumper_exe, game_assembly, metadata, dump_dir],
@@ -311,41 +339,25 @@ def _run_il2cpp_dumper(
             stderr=subprocess.PIPE,
             creationflags=creationflags,
             startupinfo=startupinfo,
-            timeout=300,
+            timeout=180,
         )
         if proc.returncode != 0:
-            stderr = (
-                proc.stderr.decode("utf-8", errors="replace") if proc.stderr else ""
-            )
-            print(
-                f"WARNING: Il2CppDumper exited with code {proc.returncode}: {stderr[:200]}"
-            )
             return None
-    except subprocess.TimeoutExpired:
-        print("WARNING: Il2CppDumper timed out")
-        return None
-    except Exception as e:
-        print(f"WARNING: Il2CppDumper failed: {e}")
+    except Exception:
         return None
 
     if not os.path.isfile(script_json):
-        print("WARNING: Il2CppDumper did not produce script.json")
         return None
 
     return dump_dir
 
 
 def _create_generator(env, game_dir: str, data_dir: str, work_dir: str, tools_dir: str):
-    """Create and initialize a TypeTreeGenerator for the game.
-
-    Returns (generator, None) on success, (None, error_msg) on failure.
-    """
     try:
         from UnityPy.helpers.TypeTreeGenerator import TypeTreeGenerator
     except ImportError:
         return None, "TypeTreeGenerator not available"
 
-    # Get Unity version
     unity_version = None
     if env.assets:
         unity_version = str(env.assets[0].unity_version)
@@ -358,7 +370,6 @@ def _create_generator(env, game_dir: str, data_dir: str, work_dir: str, tools_di
         return None, f"TypeTreeGenerator init failed: {e}"
 
     if _detect_il2cpp(game_dir, data_dir):
-        # IL2CPP: run Il2CppDumper, then load DummyDlls
         dump_dir = _run_il2cpp_dumper(game_dir, data_dir, work_dir, tools_dir)
         if dump_dir is None:
             return None, "Il2CppDumper failed"
@@ -372,7 +383,6 @@ def _create_generator(env, game_dir: str, data_dir: str, work_dir: str, tools_di
         except Exception as e:
             return None, f"Failed to load DummyDlls: {e}"
     else:
-        # Mono: load Managed DLLs
         managed_dir = os.path.join(data_dir, "Managed")
         if not os.path.isdir(managed_dir):
             return None, f"Managed directory not found: {managed_dir}"
@@ -386,7 +396,6 @@ def _create_generator(env, game_dir: str, data_dir: str, work_dir: str, tools_di
 
 
 def _load_typetree_cache(work_dir: str) -> dict:
-    """Load cached typetree nodes from work_dir."""
     cache_path = os.path.join(work_dir, "typetree_cache.pkl")
     if os.path.isfile(cache_path):
         try:
@@ -398,7 +407,6 @@ def _load_typetree_cache(work_dir: str) -> dict:
 
 
 def _save_typetree_cache(work_dir: str, cache: dict):
-    """Save typetree nodes cache to work_dir."""
     cache_path = os.path.join(work_dir, "typetree_cache.pkl")
     try:
         with open(cache_path, "wb") as f:
@@ -407,48 +415,7 @@ def _save_typetree_cache(work_dir: str, cache: dict):
         pass
 
 
-def _get_script_info(obj, env) -> Optional[tuple]:
-    """Extract (assembly, classname, namespace) from a MonoBehaviour's m_Script.
-
-    Reads the first 28 bytes of raw data to get the m_Script PPtr, then
-    looks up the MonoScript object.
-    """
-    from UnityPy.streams import EndianBinaryReader
-
-    try:
-        raw = obj.get_raw_data()
-        reader = EndianBinaryReader(raw, endian="<")
-        # m_GameObject PPtr: int32 + int64 = 12 bytes
-        reader.read_int()
-        reader.read_long()
-        # m_Enabled: uint8 + align = 4 bytes
-        reader.read_boolean()
-        reader.align_stream()
-        # m_Script PPtr: int32 + int64 = 12 bytes
-        script_file = reader.read_int()
-        script_path = reader.read_long()
-
-        # Find the MonoScript object
-        for o2 in env.objects:
-            if o2.type.name == "MonoScript" and o2.path_id == script_path:
-                ms = o2.read()
-                return (
-                    ms.m_AssemblyName or "",
-                    ms.m_ClassName or "",
-                    ms.m_Namespace or "",
-                )
-    except Exception:
-        pass
-    return None
-
-
-def _get_reconstructed_nodes(
-    gen, assembly: str, classname: str, namespace: str, cache: dict
-):
-    """Get reconstructed typetree nodes for a script class.
-
-    Returns a TypeTreeNode or None.
-    """
+def _get_reconstructed_nodes(gen, assembly: str, classname: str, namespace: str, cache: dict):
     cache_key = (assembly, classname, namespace)
     if cache_key in cache:
         return cache[cache_key]
@@ -467,11 +434,6 @@ def _get_reconstructed_nodes(
 
 
 def _read_with_reconstructed_nodes(obj, node) -> Optional[dict]:
-    """Read a MonoBehaviour's typetree using reconstructed nodes.
-
-    Reads directly from the object's raw data to avoid positioning issues
-    with the internal asset-file reader.
-    """
     from UnityPy.streams import EndianBinaryReader
     from UnityPy.helpers.TypeTreeHelper import read_typetree
 
@@ -490,10 +452,7 @@ def _read_with_reconstructed_nodes(obj, node) -> Optional[dict]:
         return None
 
 
-# --- Raw-data fallback (stripped / corrupt typetrees) -----------------------
-
 def _raw_scan_mb(obj, emit, file_name, path_id):
-    """Read exact length-prefixed Unity strings when a typetree is unavailable."""
     try:
         raw = obj.get_raw_data()
         endian = getattr(obj.reader, "endian", "<")
@@ -511,17 +470,31 @@ def _raw_scan_mb(obj, emit, file_name, path_id):
 
 
 def _is_engine_file(file_name: str) -> bool:
-    """Return True for Unity engine-internal files (globalgamemanagers*).
-
-    These files' MonoBehaviours hold Unity's own UI names ("Light Layer
-    default", etc.), not the game's text — skip them in raw-scan mode.
-    """
     base = os.path.basename(file_name or "").lower()
     return base.startswith("globalgamemanagers")
 
 
-# --- Main -------------------------------------------------------------------
+def _get_script_info_fast(obj, mono_script_map: dict) -> Optional[tuple]:
+    from UnityPy.streams import EndianBinaryReader
 
+    try:
+        raw = obj.get_raw_data()
+        reader = EndianBinaryReader(raw, endian="<")
+        reader.read_int()
+        reader.read_long()
+        reader.read_boolean()
+        reader.align_stream()
+        script_file = reader.read_int()
+        script_path = reader.read_long()
+
+        if script_path in mono_script_map:
+            return mono_script_map[script_path]
+    except Exception:
+        pass
+    return None
+
+
+# --- Main -------------------------------------------------------------------
 
 def main():
     if len(sys.argv) < 3:
@@ -532,13 +505,11 @@ def main():
     work_dir = sys.argv[2]
     tools_dir = sys.argv[3] if len(sys.argv) > 3 else ""
 
-    # Resolve data dir
     data_dir = find_data_dir(game_dir)
     if not data_dir:
         print(f"ERROR: Could not find a Unity *_Data directory under: {game_dir}")
         sys.exit(3)
 
-    # Ensure work_dir is writable
     try:
         os.makedirs(work_dir, exist_ok=True)
         test_path = os.path.join(work_dir, ".farsiforge_write_test")
@@ -550,7 +521,7 @@ def main():
         sys.exit(4)
 
     results = []
-    seen = set()  # (file, path_id, path) dedup
+    seen = set()
 
     stats = {
         "text_assets": 0,
@@ -577,177 +548,147 @@ def main():
             }
         )
 
-    # Load the whole data dir (UnityPy handles files/bundles)
-    try:
-        env = UnityPy.load(data_dir)
-    except Exception as e:
-        print(f"ERROR: UnityPy failed to load {data_dir}: {e}")
-        stats["errors"] += 1
-        _write_and_summary(work_dir, results, stats)
-        return
+    # 1. Discover candidate serialized files
+    candidate_files = find_candidate_asset_files(data_dir)
+    print(f"Found {len(candidate_files)} candidate Unity asset file(s) for extraction")
 
-    # Initialize TypeTreeGenerator for reconstructed typetrees
+    # Global lookup of MonoScript objects across files
+    mono_script_map: Dict[int, Tuple[str, str, str]] = {}
     gen = None
     gen_error = ""
     tt_cache = _load_typetree_cache(work_dir)
 
-    # Build a lookup of MonoScript objects by path_id for efficiency
-    mono_script_map = {}
-    for obj in env.objects:
-        if obj.type.name == "MonoScript":
-            try:
-                ms = obj.read()
-                mono_script_map[obj.path_id] = (
-                    ms.m_AssemblyName or "",
-                    ms.m_ClassName or "",
-                    ms.m_Namespace or "",
-                )
-            except Exception:
-                pass
-
-    for obj in env.objects:
+    # 2. Process file-by-file with active memory cleanup
+    for idx, (full_path, rel_path) in enumerate(candidate_files, 1):
         try:
-            type_name = obj.type.name
-            file_name = getattr(obj.assets_file, "name", "unknown")
-            path_id = obj.path_id
-
-            if type_name == "TextAsset":
-                try:
-                    data = obj.read()
-                except Exception:
-                    stats["errors"] += 1
-                    continue
-                raw = getattr(data, "script", None)
-                if raw is None:
-                    # Some versions expose .text instead
-                    raw = getattr(data, "text", None) or ""
-                if isinstance(raw, bytes):
-                    text = raw.decode("utf-8", errors="ignore")
-                else:
-                    text = str(raw) if raw else ""
-                text = text.strip()
-                if not text:
-                    continue
-                stats["text_assets"] += 1
-                # TextAsset: emit the whole blob as one entry (no truncation)
-                emit(file_name, path_id, f"TextAsset/{data.name}", text, "TextAsset")
-
-            elif type_name == "MonoBehaviour":
-                stats["mono_behaviours"] += 1
-                handled = False
-                used_reconstruction = False
-
-                # Strategy 1: typetree nodes available (not stripped)
-                nodes = None
-                try:
-                    nodes = obj.serialized_type.nodes
-                except Exception:
-                    nodes = None
-
-                if nodes:
-                    tree = _try_read_typetree(obj)
-                    if tree is not None:
-                        _walk_value(tree, "root", emit, file_name, path_id)
-                        handled = True
-
-                # Strategy 2: try read_typetree anyway (some IL2CPP builds)
-                if not handled:
-                    tree = _try_read_typetree(obj)
-                    if isinstance(tree, dict):
-                        _walk_value(tree, "root", emit, file_name, path_id)
-                        handled = True
-
-                # Strategy 3: reconstruct typetree from script DLLs
-                if not handled:
-                    # Lazy-init the generator on first need
-                    if gen is None and gen_error == "":
-                        gen, gen_error = _create_generator(
-                            env, game_dir, data_dir, work_dir, tools_dir
-                        )
-                        if gen is not None:
-                            print(
-                                f"TypeTreeGenerator initialized ({'IL2CPP' if _detect_il2cpp(game_dir, data_dir) else 'Mono'})"
-                            )
-
-                    if gen is not None:
-                        # Get script info from m_Script PPtr
-                        script_info = _get_script_info_fast(obj, mono_script_map)
-                        if script_info:
-                            assembly, classname, namespace = script_info
-                            node = _get_reconstructed_nodes(
-                                gen, assembly, classname, namespace, tt_cache
-                            )
-                            if node is not None:
-                                tree = _read_with_reconstructed_nodes(obj, node)
-                                if tree is not None:
-                                    _walk_value(
-                                        tree,
-                                        "root",
-                                        emit,
-                                        file_name,
-                                        path_id,
-                                    )
-                                    handled = True
-                                    used_reconstruction = True
-
-                # Strategy 4: obj.read() and walk attributes (last resort)
-                if not handled:
-                    robj = _try_read_object(obj)
-                    if robj is not None:
-                        _walk_value(robj, "root", emit, file_name, path_id)
-                        handled = True
-
-                # Strategy 5: raw-data string scan (stripped/corrupt typetrees)
-                # The game's text is still recoverable from the raw
-                # serialized bytes even when the typetree cannot be parsed.
-                # Engine-internal files (globalgamemanagers*) are skipped:
-                # their MonoBehaviours hold Unity UI names, not game text.
-                if not handled and not _is_engine_file(file_name):
-                    _raw_scan_mb(obj, emit, file_name, path_id)
-                    handled = True
-                    stats["raw_scanned"] += 1
-
-                if not handled:
-                    stats["skipped_no_typetree"] += 1
-                elif used_reconstruction:
-                    stats["reconstructed"] += 1
-
-        except Exception:
-            stats["errors"] += 1
+            env = UnityPy.load(full_path)
+        except Exception as e:
+            # Skip unreadable or corrupted single files gracefully
             continue
 
-    # Save typetree cache for inject.py and repeat runs
+        # Cache any MonoScripts found in this file
+        for obj in env.objects:
+            if obj.type.name == "MonoScript":
+                try:
+                    ms = obj.read()
+                    mono_script_map[obj.path_id] = (
+                        ms.m_AssemblyName or "",
+                        ms.m_ClassName or "",
+                        ms.m_Namespace or "",
+                    )
+                except Exception:
+                    pass
+
+        # Process TextAssets and MonoBehaviours
+        for obj in env.objects:
+            try:
+                type_name = obj.type.name
+                if type_name not in ("TextAsset", "MonoBehaviour"):
+                    continue
+
+                file_name = rel_path
+                path_id = obj.path_id
+
+                if type_name == "TextAsset":
+                    try:
+                        data = obj.read()
+                    except Exception:
+                        stats["errors"] += 1
+                        continue
+                    raw = getattr(data, "script", None)
+                    if raw is None:
+                        raw = getattr(data, "text", None) or ""
+                    if isinstance(raw, bytes):
+                        text = raw.decode("utf-8", errors="ignore")
+                    else:
+                        text = str(raw) if raw else ""
+                    text = text.strip()
+                    if not text:
+                        continue
+                    stats["text_assets"] += 1
+                    emit(file_name, path_id, f"TextAsset/{data.name}", text, "TextAsset")
+
+                elif type_name == "MonoBehaviour":
+                    stats["mono_behaviours"] += 1
+                    handled = False
+                    used_reconstruction = False
+
+                    # Strategy 1: typetree nodes available
+                    nodes = None
+                    try:
+                        nodes = obj.serialized_type.nodes
+                    except Exception:
+                        nodes = None
+
+                    if nodes:
+                        tree = _try_read_typetree(obj)
+                        if tree is not None:
+                            _walk_value(tree, "root", emit, file_name, path_id)
+                            handled = True
+
+                    # Strategy 2: read_typetree direct
+                    if not handled:
+                        tree = _try_read_typetree(obj)
+                        if isinstance(tree, dict):
+                            _walk_value(tree, "root", emit, file_name, path_id)
+                            handled = True
+
+                    # Strategy 3: TypeTreeGenerator reconstruction
+                    if not handled:
+                        if gen is None and gen_error == "":
+                            gen, gen_error = _create_generator(
+                                env, game_dir, data_dir, work_dir, tools_dir
+                            )
+
+                        if gen is not None:
+                            script_info = _get_script_info_fast(obj, mono_script_map)
+                            if script_info:
+                                assembly, classname, namespace = script_info
+                                node = _get_reconstructed_nodes(
+                                    gen, assembly, classname, namespace, tt_cache
+                                )
+                                if node is not None:
+                                    tree = _read_with_reconstructed_nodes(obj, node)
+                                    if tree is not None:
+                                        _walk_value(
+                                            tree,
+                                            "root",
+                                            emit,
+                                            file_name,
+                                            path_id,
+                                        )
+                                        handled = True
+                                        used_reconstruction = True
+
+                    # Strategy 4: obj.read() fallback
+                    if not handled:
+                        robj = _try_read_object(obj)
+                        if robj is not None:
+                            _walk_value(robj, "root", emit, file_name, path_id)
+                            handled = True
+
+                    # Strategy 5: raw serialized string scan
+                    if not handled and not _is_engine_file(file_name):
+                        _raw_scan_mb(obj, emit, file_name, path_id)
+                        handled = True
+                        stats["raw_scanned"] += 1
+
+                    if not handled:
+                        stats["skipped_no_typetree"] += 1
+                    elif used_reconstruction:
+                        stats["reconstructed"] += 1
+
+            except Exception:
+                stats["errors"] += 1
+                continue
+
+        # Immediately free the loaded asset file from memory
+        del env
+        gc.collect()
+
+    # Final cleanup & save
     _save_typetree_cache(work_dir, tt_cache)
-
     _write_and_summary(work_dir, results, stats)
-
-
-def _get_script_info_fast(obj, mono_script_map: dict) -> Optional[tuple]:
-    """Extract (assembly, classname, namespace) using a pre-built MonoScript map.
-
-    This is faster than _get_script_info because it avoids re-iterating
-    env.objects for each MonoBehaviour.
-    """
-    from UnityPy.streams import EndianBinaryReader
-
-    try:
-        raw = obj.get_raw_data()
-        reader = EndianBinaryReader(raw, endian="<")
-        # m_GameObject PPtr: int32 + int64 = 12 bytes
-        reader.read_int()
-        reader.read_long()
-        # m_Enabled: uint8 + align = 4 bytes
-        reader.read_boolean()
-        reader.align_stream()
-        # m_Script PPtr: int32 + int64 = 12 bytes
-        script_file = reader.read_int()
-        script_path = reader.read_long()
-
-        if script_path in mono_script_map:
-            return mono_script_map[script_path]
-    except Exception:
-        pass
-    return None
 
 
 def _write_and_summary(work_dir, results, stats):

@@ -230,7 +230,9 @@ These features should be implemented as one source-aware workflow: inspect game 
 
 ### 16. Support large games and large translation projects
 
-- [ ] Measure extraction and injection time, peak memory, allocations, and output size on representative large games. Publish baseline benchmarks.
+- [x] Measure extraction and injection time, peak memory, allocations, and output size on representative large games. Publish baseline benchmarks (`test/bench/memory_bench_test.go`).
+- [x] Stream Unity asset extraction/injection file-by-file with active memory cleanup (`del env; gc.collect()`), media stream (`.resS`, `.resource`) exclusion, recursion guards, and targeted asset loading in `inject.py`. Resolves multi-gigabyte Python memory leak and machine freeze on large games.
+- [x] Add cancellation and subprocess timeouts (15 minutes) to `runPythonScript` in extract and inject engines.
 - [ ] Stream large patch payloads through the FFP1 writer/installer instead of repeatedly holding complete patched files and the compressed blob in memory where practical.
 - [ ] Add cancellation and visible progress to long scans, archive extraction, and patch generation; make any hard cap configurable or show exactly what was skipped.
 - [ ] Add incremental rescanning and stable identity-based merge reports (new, changed, removed, unchanged, and preserved translations).

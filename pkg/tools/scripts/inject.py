@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""FarsiForge Unity injection script.
+"""FarsiForge Unity injection script — Memory-Optimized & Targeted.
 
 Usage: python inject.py <game_dir> <work_dir> [tools_dir]
 
@@ -8,34 +8,23 @@ objects as emitted by extract.py), injects every entry that has a
 non-empty `translation` field back into the matching Unity objects
 (TextAsset and MonoBehaviour) via UnityPy, and writes the modified
 *.assets files to <work_dir>/out/. Originals are never overwritten —
-the Go side handles backup/copy.
+the Go side handles backup/staging/copy.
 
-Object matching uses the same id scheme extract.py emits:
-    <file_name>_<path_id>_<path>
-where <path> is `TextAsset/<asset_name>` for TextAsset objects and a
-dotted walk path like `root.field.sub[0].name` for MonoBehaviour fields.
-
-For MonoBehaviour objects whose typetree has been stripped by Unity, this
-script reconstructs the typetree from the game's managed DLLs (Mono) or
-from Il2CppDumper output (IL2CPP) using UnityPy.helpers.TypeTreeGenerator,
-then uses save_typetree with the reconstructed nodes.
-
-Prints a machine-readable SUMMARY line as the final line of output.
-
-Exit codes:
-    0  success (even if 0 translations injected)
-    2  UnityPy not installed
-    3  translated.json missing/invalid or data dir not found
-    4  unexpected runtime failure
+Memory Architecture:
+- Inspects translated.json to identify ONLY the specific asset files that require modification.
+- Never loads .resS, .resource, or raw media stream buffers into memory.
+- Loads targeted asset files one at a time, saves modified output directly to work_dir/out/,
+  and calls gc.collect() immediately after each file to prevent RAM bloat and freezing on large games.
 """
 
-import os
-import sys
+import gc
 import json
+import os
 import pickle
 import re
 import subprocess
-from typing import Optional
+import sys
+from typing import Dict, List, Optional, Set, Tuple
 
 # --- UnityPy import guard ---------------------------------------------------
 try:
@@ -57,13 +46,14 @@ except Exception:
     pass
 
 
-# --- Data dir discovery -----------------------------------------------------
+# --- Data dir discovery & candidate filtering --------------------------------
 
 
 def _has_assets_files(d: str) -> bool:
     try:
         for name in os.listdir(d):
-            if name.lower().endswith(".assets"):
+            nl = name.lower()
+            if nl.endswith(".assets") and not nl.endswith(".ress"):
                 return True
     except OSError:
         pass
@@ -76,12 +66,9 @@ def find_data_dir(game_dir: str) -> Optional[str]:
         return None
 
     base = os.path.basename(os.path.normpath(game_dir))
-
-    # (b) game_dir itself is the data dir
     if base.endswith("_Data") or _has_assets_files(game_dir):
         return game_dir
 
-    # (a) *_Data directly under game_dir
     try:
         for item in os.listdir(game_dir):
             full = os.path.join(game_dir, item)
@@ -90,7 +77,6 @@ def find_data_dir(game_dir: str) -> Optional[str]:
     except OSError:
         pass
 
-    # (c) one level deep
     try:
         for item in os.listdir(game_dir):
             full = os.path.join(game_dir, item)
@@ -109,6 +95,63 @@ def find_data_dir(game_dir: str) -> Optional[str]:
         pass
 
     return None
+
+
+def find_candidate_asset_files(data_dir: str) -> List[Tuple[str, str]]:
+    """Return (full_path, rel_to_data_dir) for files containing serialized objects.
+
+    Filters out massive media stream files (.resS, .resource) and temporary directories.
+    """
+    candidates = []
+    ignore_suffixes = (
+        ".ress",
+        ".resource",
+        ".dll",
+        ".exe",
+        ".pdb",
+        ".config",
+        ".manifest",
+        ".log",
+        ".ini",
+        ".txt",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".tga",
+        ".dds",
+        ".wav",
+        ".ogg",
+        ".mp3",
+    )
+
+    for root, dirs, files in os.walk(data_dir):
+        dirs[:] = [
+            d
+            for d in dirs
+            if not d.startswith(".farsiforge")
+            and not d.startswith("WorkingDir")
+            and d != "il2cpp_dump"
+        ]
+
+        for f in files:
+            fl = f.lower()
+            if any(fl.endswith(s) for s in ignore_suffixes):
+                continue
+
+            full_path = os.path.join(root, f)
+            rel_path = os.path.relpath(full_path, data_dir).replace("\\", "/")
+
+            if (
+                fl.endswith(".assets")
+                or fl.endswith(".bundle")
+                or fl.endswith(".unity3d")
+                or fl.startswith("level")
+                or fl.startswith("sharedassets")
+                or fl.startswith("globalgamemanagers")
+            ):
+                candidates.append((full_path, rel_path))
+
+    return candidates
 
 
 # --- Typetree helpers -------------------------------------------------------
@@ -130,26 +173,31 @@ def _try_read_object(obj):
         return None
 
 
-def _inject_strings(value, path, base_id, translations, pending):
+def _inject_strings(value, path, candidate_base_ids, translations, pending):
     """Recursively walk a typetree value, replacing strings whose id matches.
 
     Returns the (possibly new) value. Appends matched ids to `pending` so the
     caller can commit them only after save_typetree succeeds.
     """
     if isinstance(value, str):
-        full_id = f"{base_id}_{path}"
-        if full_id in translations:
-            pending.append(full_id)
-            return translations[full_id]
+        for base_id in candidate_base_ids:
+            full_id = f"{base_id}_{path}"
+            if full_id in translations:
+                pending.append(full_id)
+                return translations[full_id]
         return value
     if isinstance(value, dict):
         return {
-            k: _inject_strings(v, f"{path}.{k}", base_id, translations, pending)
+            k: _inject_strings(
+                v, f"{path}.{k}", candidate_base_ids, translations, pending
+            )
             for k, v in value.items()
         }
     if isinstance(value, list):
         return [
-            _inject_strings(v, f"{path}[{i}]", base_id, translations, pending)
+            _inject_strings(
+                v, f"{path}[{i}]", candidate_base_ids, translations, pending
+            )
             for i, v in enumerate(value)
         ]
     return value
@@ -161,7 +209,9 @@ def _inject_strings(value, path, base_id, translations, pending):
 def _detect_il2cpp(game_dir: str, data_dir: str) -> bool:
     """Check if the game uses IL2CPP backend."""
     game_assembly = os.path.join(game_dir, "GameAssembly.dll")
-    metadata = os.path.join(data_dir, "il2cpp_data", "Metadata", "global-metadata.dat")
+    metadata = os.path.join(
+        data_dir, "il2cpp_data", "Metadata", "global-metadata.dat"
+    )
     return os.path.isfile(game_assembly) and os.path.isfile(metadata)
 
 
@@ -189,7 +239,9 @@ def _run_il2cpp_dumper(
         return None
 
     game_assembly = os.path.join(game_dir, "GameAssembly.dll")
-    metadata = os.path.join(data_dir, "il2cpp_data", "Metadata", "global-metadata.dat")
+    metadata = os.path.join(
+        data_dir, "il2cpp_data", "Metadata", "global-metadata.dat"
+    )
     dump_dir = os.path.join(work_dir, "il2cpp_dump")
     os.makedirs(dump_dir, exist_ok=True)
 
@@ -202,8 +254,8 @@ def _run_il2cpp_dumper(
         startupinfo = None
         if sys.platform == "win32":
             startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= 0x00000001  # STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = 0  # SW_HIDE
+            startupinfo.dwFlags |= 0x00000001
+            startupinfo.wShowWindow = 0
 
         proc = subprocess.run(
             [dumper_exe, game_assembly, metadata, dump_dir],
@@ -225,7 +277,9 @@ def _run_il2cpp_dumper(
     return dump_dir
 
 
-def _create_generator(env, game_dir: str, data_dir: str, work_dir: str, tools_dir: str):
+def _create_generator(
+    env, game_dir: str, data_dir: str, work_dir: str, tools_dir: str
+):
     """Create and initialize a TypeTreeGenerator for the game."""
     try:
         from UnityPy.helpers.TypeTreeGenerator import TypeTreeGenerator
@@ -325,8 +379,8 @@ def _get_reconstructed_nodes(
 
 def _read_with_reconstructed_nodes(obj, node) -> Optional[dict]:
     """Read a MonoBehaviour's typetree using reconstructed nodes."""
-    from UnityPy.streams import EndianBinaryReader
     from UnityPy.helpers.TypeTreeHelper import read_typetree
+    from UnityPy.streams import EndianBinaryReader
 
     try:
         raw = obj.get_raw_data()
@@ -344,13 +398,8 @@ def _read_with_reconstructed_nodes(obj, node) -> Optional[dict]:
 
 
 def _save_with_reconstructed_nodes(obj, tree, node) -> bool:
-    """Save a MonoBehaviour's typetree using reconstructed nodes.
-
-    Uses obj.save_typetree which accepts custom nodes and calls
-    set_raw_data() internally.
-    """
+    """Save a MonoBehaviour's typetree using reconstructed nodes."""
     try:
-        # Convert node to dict list for save_typetree compatibility
         node_list = node.to_dict_list()
         obj.save_typetree(tree, nodes=node_list)
         return True
@@ -392,6 +441,8 @@ def main():
     # Build translation lookup: id -> translation (only non-empty)
     translations = {}
     entries_by_id = {}
+    targeted_file_names = set()
+
     for entry in entries:
         if not isinstance(entry, dict):
             continue
@@ -400,6 +451,15 @@ def main():
         translation = entry.get("translation")
         if translation:
             translations[entry_id] = translation
+            # Track file references from entry
+            file_ref = entry.get("file", "")
+            if file_ref:
+                targeted_file_names.add(file_ref)
+                targeted_file_names.add(os.path.basename(file_ref))
+            if "_" in entry_id:
+                # Fallback: extract file_name from prefix of entry_id
+                prefix = entry_id.split("_")[0]
+                targeted_file_names.add(prefix)
 
     raw_fields_by_object = {}
     for entry_id, entry in entries_by_id.items():
@@ -408,7 +468,7 @@ def main():
             object_id = entry_id[: -len("_" + field_path)]
             raw_fields_by_object.setdefault(object_id, []).append(entry)
 
-    # No translations to inject — still emit a summary and exit cleanly.
+    # No translations to inject — emit a summary and exit cleanly
     if not translations:
         _summary_and_exit(
             work_dir,
@@ -423,15 +483,38 @@ def main():
     # --- Resolve data dir ----------------------------------------------------
     data_dir = find_data_dir(game_dir)
     if not data_dir:
-        print(f"ERROR: Could not find a Unity *_Data directory under: {game_dir}")
+        print(
+            f"ERROR: Could not find a Unity *_Data directory under: {game_dir}"
+        )
         sys.exit(3)
 
-    # --- Load Unity environment ---------------------------------------------
-    try:
-        env = UnityPy.load(data_dir)
-    except Exception as e:
-        print(f"ERROR: UnityPy failed to load {data_dir}: {e}")
-        sys.exit(4)
+    # --- Discover candidate asset files --------------------------------------
+    candidate_files = find_candidate_asset_files(data_dir)
+
+    # Filter to targeted files only
+    files_to_process = []
+    helper_files = []
+
+    for full_path, rel_path in candidate_files:
+        base_name = os.path.basename(full_path)
+        is_targeted = (
+            rel_path in targeted_file_names
+            or base_name in targeted_file_names
+            or any(t in rel_path for t in targeted_file_names)
+        )
+        if is_targeted:
+            files_to_process.append((full_path, rel_path))
+        elif base_name in ("globalgamemanagers.assets", "resources.assets"):
+            # Potential MonoScript helper file
+            helper_files.append((full_path, rel_path))
+
+    # If no files matched targeted_file_names directly, fall back to checking all candidate files
+    if not files_to_process:
+        files_to_process = candidate_files
+
+    print(
+        f"Processing {len(files_to_process)} targeted Unity asset file(s) for injection"
+    )
 
     stats = {
         "injected": 0,
@@ -442,151 +525,226 @@ def main():
     }
     matched_ids = set()
     modified_files = set()
+    out_dir = os.path.join(work_dir, "out")
+    os.makedirs(out_dir, exist_ok=True)
+    files_written = 0
 
-    # Initialize TypeTreeGenerator for reconstructed typetrees
+    # Initialize TypeTreeGenerator and MonoScript map
     gen = None
     gen_error = ""
     tt_cache = _load_typetree_cache(work_dir)
+    mono_script_map: Dict[int, Tuple[str, str, str]] = {}
 
-    # Build a lookup of MonoScript objects by path_id for efficiency
-    mono_script_map = {}
-    for obj in env.objects:
-        if obj.type.name == "MonoScript":
-            try:
-                ms = obj.read()
-                mono_script_map[obj.path_id] = (
-                    ms.m_AssemblyName or "",
-                    ms.m_ClassName or "",
-                    ms.m_Namespace or "",
-                )
-            except Exception:
-                pass
-
-    for obj in env.objects:
+    # Pre-populate mono_script_map from small helper files if available
+    for h_full, _ in helper_files:
         try:
-            type_name = obj.type.name
-            file_name = getattr(obj.assets_file, "name", "unknown")
-            path_id = obj.path_id
-            base_id = f"{file_name}_{path_id}"
-
-            # --- TextAsset --------------------------------------------------
-            if type_name == "TextAsset":
-                try:
-                    data = obj.read()
-                except Exception:
-                    stats["errors"] += 1
-                    continue
-
-                asset_name = getattr(data, "name", "") or ""
-                text_id = f"{base_id}_TextAsset/{asset_name}"
-                if text_id not in translations:
-                    continue
-
-                translation = translations[text_id]
-                try:
-                    # Replace the script/text bytes with the UTF-8 translation.
-                    if hasattr(data, "script"):
-                        data.script = translation.encode("utf-8")
-                    elif hasattr(data, "text"):
-                        data.text = translation
-                    else:
-                        # No writable text field — skip this object.
-                        stats["skipped_no_typetree"] += 1
-                        continue
-                    data.save()
-                    matched_ids.add(text_id)
-                    modified_files.add(file_name)
-                except Exception:
-                    stats["errors"] += 1
-                    continue
-
-            # --- MonoBehaviour ---------------------------------------------
-            elif type_name == "MonoBehaviour":
-                raw_entries = raw_fields_by_object.get(base_id, [])
-                if raw_entries:
-                    raw = obj.get_raw_data()
-                    endian = getattr(obj.reader, "endian", "<")
-                    replacements = {}
-                    for entry in raw_entries:
-                        try:
-                            offset = int(entry["path"][len("rawstr_") :], 16)
-                        except (KeyError, TypeError, ValueError) as exc:
-                            raise ValueError(f"invalid raw Unity field path for {entry.get('id')}") from exc
-                        if offset in replacements:
-                            raise ValueError(f"duplicate raw Unity field offset {offset}")
-                        replacements[offset] = (
-                            entry.get("source", ""),
-                            translations[entry["id"]],
+            h_env = UnityPy.load(h_full)
+            for obj in h_env.objects:
+                if obj.type.name == "MonoScript":
+                    try:
+                        ms = obj.read()
+                        mono_script_map[obj.path_id] = (
+                            ms.m_AssemblyName or "",
+                            ms.m_ClassName or "",
+                            ms.m_Namespace or "",
                         )
+                    except Exception:
+                        pass
+            del h_env
+        except Exception:
+            pass
 
-                    obj.set_raw_data(replace_serialized_strings(raw, replacements, endian))
-                    for entry in raw_entries:
-                        matched_ids.add(entry["id"])
-                    modified_files.add(file_name)
-                    continue
+    # --- Process targeted files one-by-one -----------------------------------
+    for full_path, rel_path in files_to_process:
+        try:
+            env = UnityPy.load(full_path)
+        except Exception:
+            continue
 
-                # Strategy 1: typetree nodes available (not stripped)
-                nodes = None
+        file_has_changes = False
+        base_filename = os.path.basename(full_path)
+
+        # Collect any MonoScripts in this file too
+        for obj in env.objects:
+            if obj.type.name == "MonoScript":
                 try:
-                    nodes = obj.serialized_type.nodes
-                except Exception:
-                    nodes = None
-
-                tree = None
-                used_reconstruction = False
-
-                if nodes:
-                    tree = _try_read_typetree(obj)
-
-                # Strategy 2: try read_typetree directly (some IL2CPP builds)
-                if not isinstance(tree, dict):
-                    tree = _try_read_typetree(obj)
-
-                # Strategy 3: reconstruct typetree from script DLLs
-                if not isinstance(tree, dict):
-                    # Lazy-init the generator on first need
-                    if gen is None and gen_error == "":
-                        gen, gen_error = _create_generator(
-                            env, game_dir, data_dir, work_dir, tools_dir
-                        )
-
-                    if gen is not None:
-                        script_info = _get_script_info_fast(obj, mono_script_map)
-                        if script_info:
-                            assembly, classname, namespace = script_info
-                            node = _get_reconstructed_nodes(
-                                gen, assembly, classname, namespace, tt_cache
-                            )
-                            if node is not None:
-                                tree = _read_with_reconstructed_nodes(obj, node)
-                                if tree is not None:
-                                    used_reconstruction = True
-
-                if isinstance(tree, dict):
-                    pending = []
-                    new_tree = _inject_strings(
-                        tree, "root", base_id, translations, pending
+                    ms = obj.read()
+                    mono_script_map[obj.path_id] = (
+                        ms.m_AssemblyName or "",
+                        ms.m_ClassName or "",
+                        ms.m_Namespace or "",
                     )
-                    if pending:
-                        try:
-                            if used_reconstruction:
-                                # Save with reconstructed nodes
-                                script_info = _get_script_info_fast(
-                                    obj, mono_script_map
+                except Exception:
+                    pass
+
+        # Inspect and inject into objects
+        for obj in env.objects:
+            try:
+                type_name = obj.type.name
+                if type_name not in ("TextAsset", "MonoBehaviour"):
+                    continue
+
+                asset_file_name = getattr(obj.assets_file, "name", "") or ""
+                path_id = obj.path_id
+
+                # Support matching against both relative path and asset filename
+                candidate_base_ids = [
+                    f"{rel_path}_{path_id}",
+                    f"{base_filename}_{path_id}",
+                ]
+                if asset_file_name:
+                    candidate_base_ids.append(f"{asset_file_name}_{path_id}")
+
+                # --- TextAsset ----------------------------------------------
+                if type_name == "TextAsset":
+                    try:
+                        data = obj.read()
+                    except Exception:
+                        stats["errors"] += 1
+                        continue
+
+                    asset_name = getattr(data, "name", "") or ""
+                    matched_text_id = None
+                    for bid in candidate_base_ids:
+                        tid = f"{bid}_TextAsset/{asset_name}"
+                        if tid in translations:
+                            matched_text_id = tid
+                            break
+
+                    if not matched_text_id:
+                        continue
+
+                    translation = translations[matched_text_id]
+                    try:
+                        if hasattr(data, "script"):
+                            data.script = translation.encode("utf-8")
+                        elif hasattr(data, "text"):
+                            data.text = translation
+                        else:
+                            stats["skipped_no_typetree"] += 1
+                            continue
+                        data.save()
+                        matched_ids.add(matched_text_id)
+                        file_has_changes = True
+                    except Exception:
+                        stats["errors"] += 1
+                        continue
+
+                # --- MonoBehaviour -----------------------------------------
+                elif type_name == "MonoBehaviour":
+                    raw_entries = []
+                    for bid in candidate_base_ids:
+                        if bid in raw_fields_by_object:
+                            raw_entries = raw_fields_by_object[bid]
+                            break
+
+                    if raw_entries:
+                        raw = obj.get_raw_data()
+                        endian = getattr(obj.reader, "endian", "<")
+                        replacements = {}
+                        for entry in raw_entries:
+                            try:
+                                offset = int(entry["path"][len("rawstr_") :], 16)
+                            except (KeyError, TypeError, ValueError) as exc:
+                                raise ValueError(
+                                    f"invalid raw Unity field path for {entry.get('id')}"
+                                ) from exc
+                            if offset in replacements:
+                                raise ValueError(
+                                    f"duplicate raw Unity field offset {offset}"
                                 )
-                                if script_info:
-                                    assembly, classname, namespace = script_info
-                                    node = _get_reconstructed_nodes(
-                                        gen, assembly, classname, namespace, tt_cache
+                            replacements[offset] = (
+                                entry.get("source", ""),
+                                translations[entry["id"]],
+                            )
+
+                        obj.set_raw_data(
+                            replace_serialized_strings(raw, replacements, endian)
+                        )
+                        for entry in raw_entries:
+                            matched_ids.add(entry["id"])
+                        file_has_changes = True
+                        continue
+
+                    # Typetree injection
+                    nodes = None
+                    try:
+                        nodes = obj.serialized_type.nodes
+                    except Exception:
+                        nodes = None
+
+                    tree = None
+                    used_reconstruction = False
+
+                    if nodes:
+                        tree = _try_read_typetree(obj)
+
+                    if not isinstance(tree, dict):
+                        tree = _try_read_typetree(obj)
+
+                    if not isinstance(tree, dict):
+                        if gen is None and gen_error == "":
+                            gen, gen_error = _create_generator(
+                                env, game_dir, data_dir, work_dir, tools_dir
+                            )
+
+                        if gen is not None:
+                            script_info = _get_script_info_fast(
+                                obj, mono_script_map
+                            )
+                            if script_info:
+                                assembly, classname, namespace = script_info
+                                node = _get_reconstructed_nodes(
+                                    gen,
+                                    assembly,
+                                    classname,
+                                    namespace,
+                                    tt_cache,
+                                )
+                                if node is not None:
+                                    tree = _read_with_reconstructed_nodes(
+                                        obj, node
                                     )
-                                    if node is not None:
-                                        if _save_with_reconstructed_nodes(
-                                            obj, new_tree, node
-                                        ):
-                                            for pid in pending:
-                                                matched_ids.add(pid)
-                                            modified_files.add(file_name)
-                                            stats["reconstructed"] += 1
+                                    if tree is not None:
+                                        used_reconstruction = True
+
+                    if isinstance(tree, dict):
+                        pending = []
+                        new_tree = _inject_strings(
+                            tree,
+                            "root",
+                            candidate_base_ids,
+                            translations,
+                            pending,
+                        )
+                        if pending:
+                            try:
+                                if used_reconstruction:
+                                    script_info = _get_script_info_fast(
+                                        obj, mono_script_map
+                                    )
+                                    if script_info:
+                                        assembly, classname, namespace = (
+                                            script_info
+                                        )
+                                        node = _get_reconstructed_nodes(
+                                            gen,
+                                            assembly,
+                                            classname,
+                                            namespace,
+                                            tt_cache,
+                                        )
+                                        if node is not None:
+                                            if _save_with_reconstructed_nodes(
+                                                obj, new_tree, node
+                                            ):
+                                                for pid in pending:
+                                                    matched_ids.add(pid)
+                                                file_has_changes = True
+                                                stats["reconstructed"] += 1
+                                            else:
+                                                stats["errors"] += 1
+                                                continue
                                         else:
                                             stats["errors"] += 1
                                             continue
@@ -594,52 +752,44 @@ def main():
                                         stats["errors"] += 1
                                         continue
                                 else:
-                                    stats["errors"] += 1
-                                    continue
-                            else:
-                                # Save with original typetree nodes
-                                obj.save_typetree(new_tree)
-                                for pid in pending:
-                                    matched_ids.add(pid)
-                                modified_files.add(file_name)
-                        except Exception:
-                            stats["errors"] += 1
-                            continue
-                else:
-                    # No typetree available — skip
-                    stats["skipped_no_typetree"] += 1
+                                    obj.save_typetree(new_tree)
+                                    for pid in pending:
+                                        matched_ids.add(pid)
+                                    file_has_changes = True
+                            except Exception:
+                                stats["errors"] += 1
+                                continue
+                    else:
+                        stats["skipped_no_typetree"] += 1
 
-        except Exception:
-            stats["errors"] += 1
-            continue
-
-    stats["not_found"] = len(translations) - len(matched_ids)
-
-    # --- Write modified .assets files to <work_dir>/out/ --------------------
-    out_dir = os.path.join(work_dir, "out")
-    files_written = 0
-    try:
-        os.makedirs(out_dir, exist_ok=True)
-        for asset in env.assets:
-            asset_name = getattr(asset, "name", None)
-            if asset_name is None or asset_name not in modified_files:
-                continue
-            try:
-                saved = asset.save()
-                # Names originate in the game archive; keep all output staged.
-                safe_name = os.path.basename(asset_name)
-                if safe_name in ("", ".", ".."):
-                    stats["errors"] += 1
-                    continue
-                out_path = os.path.join(out_dir, safe_name)
-                with open(out_path, "wb") as f:
-                    f.write(saved)
-                files_written += 1
             except Exception:
                 stats["errors"] += 1
-    except OSError as e:
-        print(f"ERROR: could not write output to {out_dir}: {e}")
-        sys.exit(4)
+                continue
+
+        # If any changes were made to objects in this file, save asset immediately
+        if file_has_changes:
+            for asset in env.assets:
+                try:
+                    saved = asset.save()
+                    asset_name = getattr(asset, "name", "") or base_filename
+                    safe_name = os.path.basename(asset_name)
+                    if safe_name in ("", ".", ".."):
+                        safe_name = base_filename
+
+                    out_path = os.path.join(out_dir, safe_name)
+                    with open(out_path, "wb") as f:
+                        f.write(saved)
+
+                    modified_files.add(safe_name)
+                    files_written += 1
+                except Exception:
+                    stats["errors"] += 1
+
+        # Explicitly release memory immediately
+        del env
+        gc.collect()
+
+    stats["not_found"] = len(translations) - len(matched_ids)
 
     _summary_and_exit(
         work_dir,

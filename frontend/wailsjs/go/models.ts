@@ -1,5 +1,178 @@
+export namespace assetbrowser {
+	
+	export class AssetNode {
+	    id: string;
+	    name: string;
+	    rel_path: string;
+	    container?: string;
+	    member_path?: string;
+	    type: string;
+	    format: string;
+	    engine: string;
+	    size_bytes: number;
+	    text_count: number;
+	    parsing_status: string;
+	    can_extract: boolean;
+	    can_inject: boolean;
+	    read_only: boolean;
+	    read_only_reason?: string;
+	    children?: AssetNode[];
+	    metadata?: Record<string, string>;
+	    sample_entries?: core.StringEntry[];
+	
+	    static createFrom(source: any = {}) {
+	        return new AssetNode(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.rel_path = source["rel_path"];
+	        this.container = source["container"];
+	        this.member_path = source["member_path"];
+	        this.type = source["type"];
+	        this.format = source["format"];
+	        this.engine = source["engine"];
+	        this.size_bytes = source["size_bytes"];
+	        this.text_count = source["text_count"];
+	        this.parsing_status = source["parsing_status"];
+	        this.can_extract = source["can_extract"];
+	        this.can_inject = source["can_inject"];
+	        this.read_only = source["read_only"];
+	        this.read_only_reason = source["read_only_reason"];
+	        this.children = this.convertValues(source["children"], AssetNode);
+	        this.metadata = source["metadata"];
+	        this.sample_entries = this.convertValues(source["sample_entries"], core.StringEntry);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class AssetBrowserView {
+	    game_root: string;
+	    engine: string;
+	    total_files: number;
+	    total_containers: number;
+	    total_parsed_resources: number;
+	    total_text_records: number;
+	    root_nodes: AssetNode[];
+	    diagnostics: scanner.ScanDiagnostics;
+	
+	    static createFrom(source: any = {}) {
+	        return new AssetBrowserView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.game_root = source["game_root"];
+	        this.engine = source["engine"];
+	        this.total_files = source["total_files"];
+	        this.total_containers = source["total_containers"];
+	        this.total_parsed_resources = source["total_parsed_resources"];
+	        this.total_text_records = source["total_text_records"];
+	        this.root_nodes = this.convertValues(source["root_nodes"], AssetNode);
+	        this.diagnostics = this.convertValues(source["diagnostics"], scanner.ScanDiagnostics);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
 export namespace core {
 	
+	export class EngineCapability {
+	    engine: string;
+	    display_name: string;
+	    can_detect: boolean;
+	    can_extract: boolean;
+	    can_inject: boolean;
+	    archive_rebuild: boolean;
+	    font_support: boolean;
+	    patch_install: boolean;
+	    status: string;
+	    extraction_notes?: string;
+	    injection_notes?: string;
+	    required_tools?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new EngineCapability(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.engine = source["engine"];
+	        this.display_name = source["display_name"];
+	        this.can_detect = source["can_detect"];
+	        this.can_extract = source["can_extract"];
+	        this.can_inject = source["can_inject"];
+	        this.archive_rebuild = source["archive_rebuild"];
+	        this.font_support = source["font_support"];
+	        this.patch_install = source["patch_install"];
+	        this.status = source["status"];
+	        this.extraction_notes = source["extraction_notes"];
+	        this.injection_notes = source["injection_notes"];
+	        this.required_tools = source["required_tools"];
+	    }
+	}
+	export class ExtractionStats {
+	    total_parsed: number;
+	    accepted_count: number;
+	    high_confidence_count: number;
+	    needs_review_count: number;
+	    technical_count: number;
+	    raw_heuristic_count: number;
+	    read_only_count: number;
+	    filtered_by_reason?: Record<string, number>;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExtractionStats(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.total_parsed = source["total_parsed"];
+	        this.accepted_count = source["accepted_count"];
+	        this.high_confidence_count = source["high_confidence_count"];
+	        this.needs_review_count = source["needs_review_count"];
+	        this.technical_count = source["technical_count"];
+	        this.raw_heuristic_count = source["raw_heuristic_count"];
+	        this.read_only_count = source["read_only_count"];
+	        this.filtered_by_reason = source["filtered_by_reason"];
+	    }
+	}
 	export class GameInfo {
 	    engine: string;
 	    backend?: string;
@@ -32,40 +205,6 @@ export namespace core {
 	        this.confidence = source["confidence"];
 	        this.evidence = source["evidence"];
 	        this.metadata = source["metadata"];
-	    }
-	}
-	export class EngineCapability {
-	    engine: string;
-	    display_name: string;
-	    can_detect: boolean;
-	    can_extract: boolean;
-	    can_inject: boolean;
-	    archive_rebuild: boolean;
-	    font_support: boolean;
-	    patch_install: boolean;
-	    status: string;
-	    extraction_notes?: string;
-	    injection_notes?: string;
-	    required_tools?: string[];
-
-	    static createFrom(source: any = {}) {
-	        return new EngineCapability(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.engine = source["engine"];
-	        this.display_name = source["display_name"];
-	        this.can_detect = source["can_detect"];
-	        this.can_extract = source["can_extract"];
-	        this.can_inject = source["can_inject"];
-	        this.archive_rebuild = source["archive_rebuild"];
-	        this.font_support = source["font_support"];
-	        this.patch_install = source["patch_install"];
-	        this.status = source["status"];
-	        this.extraction_notes = source["extraction_notes"];
-	        this.injection_notes = source["injection_notes"];
-	        this.required_tools = source["required_tools"];
 	    }
 	}
 	export class PersianOptions {
@@ -136,52 +275,6 @@ export namespace core {
 	        this.source_type = source["source_type"];
 	    }
 	}
-	export class ExtractionStats {
-	    total_parsed: number;
-	    accepted_count: number;
-	    high_confidence_count: number;
-	    needs_review_count: number;
-	    technical_count: number;
-	    raw_heuristic_count: number;
-	    read_only_count: number;
-	    filtered_by_reason?: Record<string, number>;
-
-	    static createFrom(source: any = {}) {
-	        return new ExtractionStats(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.total_parsed = source["total_parsed"];
-	        this.accepted_count = source["accepted_count"];
-	        this.high_confidence_count = source["high_confidence_count"];
-	        this.needs_review_count = source["needs_review_count"];
-	        this.technical_count = source["technical_count"];
-	        this.raw_heuristic_count = source["raw_heuristic_count"];
-	        this.read_only_count = source["read_only_count"];
-	        this.filtered_by_reason = source["filtered_by_reason"];
-	    }
-	}
-	export class ValidationError {
-	    entry_id: string;
-	    type: string;
-	    message: string;
-	    severity: string;
-	    details?: string;
-
-	    static createFrom(source: any = {}) {
-	        return new ValidationError(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.entry_id = source["entry_id"];
-	        this.type = source["type"];
-	        this.message = source["message"];
-	        this.severity = source["severity"];
-	        this.details = source["details"];
-	    }
-	}
 	export class Project {
 	    name: string;
 	    game_name: string;
@@ -247,6 +340,207 @@ export namespace core {
 		    }
 		    return a;
 		}
+	}
+	
+	export class ValidationError {
+	    entry_id: string;
+	    type: string;
+	    message: string;
+	    severity: string;
+	    details?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ValidationError(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.entry_id = source["entry_id"];
+	        this.type = source["type"];
+	        this.message = source["message"];
+	        this.severity = source["severity"];
+	        this.details = source["details"];
+	    }
+	}
+
+}
+
+export namespace exchange {
+	
+	export class ImportResult {
+	    Accepted: number;
+	    Skipped: number;
+	    Rejected: number;
+	    Errors: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ImportResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Accepted = source["Accepted"];
+	        this.Skipped = source["Skipped"];
+	        this.Rejected = source["Rejected"];
+	        this.Errors = source["Errors"];
+	    }
+	}
+
+}
+
+export namespace fonts {
+	
+	export class GlyphCoverageReport {
+	    supports_persian: boolean;
+	    supports_arabic: boolean;
+	    supports_persian_digits: boolean;
+	    has_opentype_shaping: boolean;
+	    total_tested_runes: number;
+	    supported_runes_count: number;
+	    missing_runes?: string[];
+	    coverage_percent: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new GlyphCoverageReport(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.supports_persian = source["supports_persian"];
+	        this.supports_arabic = source["supports_arabic"];
+	        this.supports_persian_digits = source["supports_persian_digits"];
+	        this.has_opentype_shaping = source["has_opentype_shaping"];
+	        this.total_tested_runes = source["total_tested_runes"];
+	        this.supported_runes_count = source["supported_runes_count"];
+	        this.missing_runes = source["missing_runes"];
+	        this.coverage_percent = source["coverage_percent"];
+	    }
+	}
+	export class FontInventoryItem {
+	    path: string;
+	    container?: string;
+	    resource_id?: string;
+	    engine: string;
+	    detected_format: string;
+	    asset_type: string;
+	    family?: string;
+	    style?: string;
+	    atlas_texture?: string;
+	    confidence: number;
+	    can_export: boolean;
+	    can_replace: boolean;
+	    unsupported_reason?: string;
+	    glyph_coverage?: GlyphCoverageReport;
+	    file_size: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new FontInventoryItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.container = source["container"];
+	        this.resource_id = source["resource_id"];
+	        this.engine = source["engine"];
+	        this.detected_format = source["detected_format"];
+	        this.asset_type = source["asset_type"];
+	        this.family = source["family"];
+	        this.style = source["style"];
+	        this.atlas_texture = source["atlas_texture"];
+	        this.confidence = source["confidence"];
+	        this.can_export = source["can_export"];
+	        this.can_replace = source["can_replace"];
+	        this.unsupported_reason = source["unsupported_reason"];
+	        this.glyph_coverage = this.convertValues(source["glyph_coverage"], GlyphCoverageReport);
+	        this.file_size = source["file_size"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class FontInventoryReport {
+	    game_root: string;
+	    engine: string;
+	    total_fonts_found: number;
+	    direct_font_files: number;
+	    engine_resources: number;
+	    bitmap_atlases: number;
+	    persian_ready_count: number;
+	    items: FontInventoryItem[];
+	    diagnostic_summary: string;
+	    recommended_action: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new FontInventoryReport(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.game_root = source["game_root"];
+	        this.engine = source["engine"];
+	        this.total_fonts_found = source["total_fonts_found"];
+	        this.direct_font_files = source["direct_font_files"];
+	        this.engine_resources = source["engine_resources"];
+	        this.bitmap_atlases = source["bitmap_atlases"];
+	        this.persian_ready_count = source["persian_ready_count"];
+	        this.items = this.convertValues(source["items"], FontInventoryItem);
+	        this.diagnostic_summary = source["diagnostic_summary"];
+	        this.recommended_action = source["recommended_action"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class FontReplacementResult {
+	    target_rel_path: string;
+	    staged_path: string;
+	    source_sha256: string;
+	    target_sha256: string;
+	    font_family: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new FontReplacementResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.target_rel_path = source["target_rel_path"];
+	        this.staged_path = source["staged_path"];
+	        this.source_sha256 = source["source_sha256"];
+	        this.target_sha256 = source["target_sha256"];
+	        this.font_family = source["font_family"];
+	    }
 	}
 
 }
@@ -358,236 +652,154 @@ export namespace main {
 
 }
 
-export namespace exchange {
-	export class ImportResult {
-	    Accepted: number;
-	    Skipped: number;
-	    Rejected: number;
-	    Errors: string[];
-
+export namespace scanner {
+	
+	export class ScanDiagnostics {
+	    total_scanned_files: number;
+	    skipped_directories?: string[];
+	    skipped_files?: string[];
+	    access_errors?: string[];
+	    truncated: boolean;
+	
 	    static createFrom(source: any = {}) {
-	        return new ImportResult(source);
+	        return new ScanDiagnostics(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.Accepted = source["Accepted"];
-	        this.Skipped = source["Skipped"];
-	        this.Rejected = source["Rejected"];
-	        this.Errors = source["Errors"];
+	        this.total_scanned_files = source["total_scanned_files"];
+	        this.skipped_directories = source["skipped_directories"];
+	        this.skipped_files = source["skipped_files"];
+	        this.access_errors = source["access_errors"];
+	        this.truncated = source["truncated"];
 	    }
 	}
+
 }
 
-export namespace fonts {
-	export class GlyphCoverageReport {
-	    supports_persian: boolean;
-	    supports_arabic: boolean;
-	    supports_persian_digits: boolean;
-	    has_opentype_shaping: boolean;
-	    total_tested_runes: number;
-	    supported_runes_count: number;
-	    missing_runes?: string[];
-	    coverage_percent: number;
-
-	    static createFrom(source: any = {}) {
-	        return new GlyphCoverageReport(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.supports_persian = source["supports_persian"];
-	        this.supports_arabic = source["supports_arabic"];
-	        this.supports_persian_digits = source["supports_persian_digits"];
-	        this.has_opentype_shaping = source["has_opentype_shaping"];
-	        this.total_tested_runes = source["total_tested_runes"];
-	        this.supported_runes_count = source["supported_runes_count"];
-	        this.missing_runes = source["missing_runes"];
-	        this.coverage_percent = source["coverage_percent"];
-	    }
-	}
-	export class FontInventoryItem {
-	    path: string;
-	    container?: string;
-	    resource_id?: string;
-	    engine: string;
-	    detected_format: string;
-	    asset_type: string;
-	    family?: string;
-	    style?: string;
-	    atlas_texture?: string;
-	    confidence: number;
-	    can_export: boolean;
-	    can_replace: boolean;
-	    unsupported_reason?: string;
-	    glyph_coverage?: GlyphCoverageReport;
-	    file_size: number;
-
-	    static createFrom(source: any = {}) {
-	        return new FontInventoryItem(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.path = source["path"];
-	        this.container = source["container"];
-	        this.resource_id = source["resource_id"];
-	        this.engine = source["engine"];
-	        this.detected_format = source["detected_format"];
-	        this.asset_type = source["asset_type"];
-	        this.family = source["family"];
-	        this.style = source["style"];
-	        this.atlas_texture = source["atlas_texture"];
-	        this.confidence = source["confidence"];
-	        this.can_export = source["can_export"];
-	        this.can_replace = source["can_replace"];
-	        this.unsupported_reason = source["unsupported_reason"];
-	        this.glyph_coverage = source["glyph_coverage"];
-	        this.file_size = source["file_size"];
-	    }
-	}
-	export class FontInventoryReport {
-	    game_root: string;
-	    engine: string;
-	    total_fonts_found: number;
-	    direct_font_files: number;
-	    engine_resources: number;
-	    bitmap_atlases: number;
-	    persian_ready_count: number;
-	    items: FontInventoryItem[];
-	    diagnostic_summary: string;
-	    recommended_action: string;
-
-	    static createFrom(source: any = {}) {
-	        return new FontInventoryReport(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.game_root = source["game_root"];
-	        this.engine = source["engine"];
-	        this.total_fonts_found = source["total_fonts_found"];
-	        this.direct_font_files = source["direct_font_files"];
-	        this.engine_resources = source["engine_resources"];
-	        this.bitmap_atlases = source["bitmap_atlases"];
-	        this.persian_ready_count = source["persian_ready_count"];
-	        this.items = this.convertValues(source["items"], FontInventoryItem);
-	        this.diagnostic_summary = source["diagnostic_summary"];
-	        this.recommended_action = source["recommended_action"];
-	    }
-
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) return a;
-		    if (a.slice && a.map) return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    if ("object" === typeof a) return new classs(a);
-		    return a;
-		}
-	}
-	export class FontReplacementResult {
-	    target_rel_path: string;
-	    staged_path: string;
-	    source_sha256: string;
-	    target_sha256: string;
-	    font_family: string;
-
-	    static createFrom(source: any = {}) {
-	        return new FontReplacementResult(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.target_rel_path = source["target_rel_path"];
-	        this.staged_path = source["staged_path"];
-	        this.source_sha256 = source["source_sha256"];
-	        this.target_sha256 = source["target_sha256"];
-	        this.font_family = source["font_family"];
-	    }
-	}
-}
-
-export namespace assetbrowser {
-	export class AssetNode {
+export namespace tools {
+	
+	export class ToolDiagnostic {
 	    id: string;
 	    name: string;
-	    rel_path: string;
-	    container?: string;
-	    member_path?: string;
-	    type: string;
-	    format: string;
-	    engine: string;
-	    size_bytes: number;
-	    text_count: number;
-	    parsing_status: string;
-	    can_extract: boolean;
-	    can_inject: boolean;
-	    read_only: boolean;
-	    read_only_reason?: string;
-	    children?: AssetNode[];
-	    metadata?: Record<string, string>;
-
+	    category: string;
+	    found: boolean;
+	    path: string;
+	    version: string;
+	    architecture: string;
+	    license: string;
+	    source: string;
+	    status: string;
+	    test_result: string;
+	    error_message?: string;
+	
 	    static createFrom(source: any = {}) {
-	        return new AssetNode(source);
+	        return new ToolDiagnostic(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.name = source["name"];
-	        this.rel_path = source["rel_path"];
-	        this.container = source["container"];
-	        this.member_path = source["member_path"];
-	        this.type = source["type"];
-	        this.format = source["format"];
-	        this.engine = source["engine"];
-	        this.size_bytes = source["size_bytes"];
-	        this.text_count = source["text_count"];
-	        this.parsing_status = source["parsing_status"];
-	        this.can_extract = source["can_extract"];
-	        this.can_inject = source["can_inject"];
-	        this.read_only = source["read_only"];
-	        this.read_only_reason = source["read_only_reason"];
-	        this.children = this.convertValues(source["children"], AssetNode);
-	        this.metadata = source["metadata"];
+	        this.category = source["category"];
+	        this.found = source["found"];
+	        this.path = source["path"];
+	        this.version = source["version"];
+	        this.architecture = source["architecture"];
+	        this.license = source["license"];
+	        this.source = source["source"];
+	        this.status = source["status"];
+	        this.test_result = source["test_result"];
+	        this.error_message = source["error_message"];
 	    }
-
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) return a;
-		    if (a.slice && a.map) return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    if ("object" === typeof a) return new classs(a);
-		    return a;
-		}
 	}
-
-	export class AssetBrowserView {
-	    game_root: string;
-	    engine: string;
-	    total_files: number;
-	    total_containers: number;
-	    total_parsed_resources: number;
-	    total_text_records: number;
-	    root_nodes: AssetNode[];
-
+	export class DiagnosticReport {
+	    // Go type: time
+	    generated_at: any;
+	    os: string;
+	    arch: string;
+	    go_version: string;
+	    tools_dir: string;
+	    tools: ToolDiagnostic[];
+	    summary: string;
+	
 	    static createFrom(source: any = {}) {
-	        return new AssetBrowserView(source);
+	        return new DiagnosticReport(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.game_root = source["game_root"];
-	        this.engine = source["engine"];
-	        this.total_files = source["total_files"];
-	        this.total_containers = source["total_containers"];
-	        this.total_parsed_resources = source["total_parsed_resources"];
-	        this.total_text_records = source["total_text_records"];
-	        this.root_nodes = this.convertValues(source["root_nodes"], AssetNode);
+	        this.generated_at = this.convertValues(source["generated_at"], null);
+	        this.os = source["os"];
+	        this.arch = source["arch"];
+	        this.go_version = source["go_version"];
+	        this.tools_dir = source["tools_dir"];
+	        this.tools = this.convertValues(source["tools"], ToolDiagnostic);
+	        this.summary = source["summary"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) return a;
-		    if (a.slice && a.map) return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    if ("object" === typeof a) return new classs(a);
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
 		    return a;
 		}
 	}
+	export class OperationCheckResult {
+	    engine: string;
+	    operation: string;
+	    allowed: boolean;
+	    missing_required: string[];
+	    missing_optional: string[];
+	    warnings: string[];
+	    blockers: string[];
+	    tools_evaluated: ToolDiagnostic[];
+	
+	    static createFrom(source: any = {}) {
+	        return new OperationCheckResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.engine = source["engine"];
+	        this.operation = source["operation"];
+	        this.allowed = source["allowed"];
+	        this.missing_required = source["missing_required"];
+	        this.missing_optional = source["missing_optional"];
+	        this.warnings = source["warnings"];
+	        this.blockers = source["blockers"];
+	        this.tools_evaluated = this.convertValues(source["tools_evaluated"], ToolDiagnostic);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
 }
 

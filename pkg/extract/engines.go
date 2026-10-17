@@ -5,12 +5,14 @@ import (
 	"crypto/sha256"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"farsiforge/pkg/core"
 	"farsiforge/pkg/scanner"
@@ -52,6 +54,15 @@ func toolsRegistry(reg core.ToolRegistry) *tools.Registry {
 // pkg/tools.RunSilent. It parses the trailing SUMMARY line and maps the
 // process exit code into scriptResult.ExitCode.
 func runPythonScript(ctx context.Context, reg core.ToolRegistry, op, scriptName, gameDir, workDir string) (*scriptResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 15*time.Minute)
+		defer cancel()
+	}
+
 	py := reg.GetPython()
 	if py == "" {
 		return nil, core.NewError(op, "Python is required but was not found")
@@ -70,6 +81,12 @@ func runPythonScript(ctx context.Context, reg core.ToolRegistry, op, scriptName,
 	out, runErr := tools.RunSilent(ctx, workDir, py, args...)
 	res := &scriptResult{Output: out}
 	if runErr != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return res, core.NewError(op, "operation timed out after 15 minutes while running "+scriptName)
+		}
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return res, core.NewError(op, "operation was cancelled while running "+scriptName)
+		}
 		if ee, ok := runErr.(*exec.ExitError); ok {
 			res.ExitCode = ee.ExitCode()
 		} else {
