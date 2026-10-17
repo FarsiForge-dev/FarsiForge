@@ -1,70 +1,260 @@
-# FarsiForge Project Roadmap & TODO
+# FarsiForge — Code-Reviewed Engineering Roadmap
 
-Last updated: 2026-10-13
+**Review date:** 2026-10-17  
+**Primary repository:** `FarsiForge-dev/FarsiForge`  
+**Companion repository:** `FarsiForge-dev/FarsiForgeTools`
 
-## Current Status & Verification Checkpoint
+This roadmap is based on a source-level review of the application, Wails/Next.js workbench, engine registries and adapters, patch writer/installer, C# patcher, helper-tool CLI/parsers, tests, GitHub Actions workflows, and organization guidance—not on README claims alone.
 
-All P0 through P3 core engine, format, security, and persistence milestones have been successfully implemented and verified with 100% passing tests.
+**Verification note:** this was a static review of the current GitHub source. The test suites and release builds were not executed as part of this review. The older checkpoint in the archive records the previous project's reported results; it is not a fresh verification of the current branch.
 
-- **Release v1.4.0:** Complete dynamic helper tools discovery, hardened paths, offline UI components, and automated packaging of GDRE & Vazirmatn.
-- **Go Test Suite:** `go test ./... -count=1` passed (100% green across main repository and FarsiForgeTools).
-- **Go Build & Vet:** `go build ./...` and `go vet ./...` pass with zero errors/warnings.
-- **Frontend Build:** `npm run build` compiles cleanly.
-- **Knowledge Graph:** Knowledge graph updated with 127 labeled semantic communities.
-- **Automated CI/CD:** GitHub Actions release workflow configured for automated cross-compilation, tool fetching, and release packaging.
+## Priority definitions
 
----
-
-## 🎯 Active & Future Milestones
-
-### M1 — Engine Injection Expansion
-- [ ] **Unity Typetree Generator**: Automate typetree definition extraction for stripped Unity games to convert candidate `raw_*` strings into safe writable candidates.
-- [ ] **Unreal Engine Loose Staging**: Expand automatic discovery of loose `.locres` override directories to simplify patching without repackaging full `.pak` archives.
-- [ ] **Godot Locale Auto-Creation**: Add capability to dynamically generate and register a new Persian (`fa`) locale catalog in PCKs that lack existing `.translation` resources.
-- [ ] **FromSoftware Font Atlas Injection**: Build specialized font texture/glyph patcher for FromSoftware subtitle and UI renderers.
-
-### M2 — UI & Workbench Enhancements
-- [ ] **AI-Assisted Translation Suggestions**: Add optional pluggable LLM translator integration in the workbench UI for batch translating untranslated strings.
-- [ ] **Glossary & Terminology Base**: Implement project-level terminology dictionaries to enforce consistent naming across item names, locations, and dialogue.
-- [ ] **Visual Diff Inspector**: Add an in-app visual diff viewer to compare original and localized strings with live bidirectional formatting preview.
-
-### M3 — Packaging & Distribution Ecosystem
-- [ ] **Automated Release Validation**: Continuously monitor GitHub Actions release pipelines and verify generated `.zip` packages on clean Windows runner environments.
-- [ ] **Auto-Updater Integration**: Integrate lightweight updater check in Wails UI to notify translators of new FarsiForge workbench versions.
+- **P0 — Release blocker:** data loss, unintended game-file mutation, a patch that cannot be installed, unsafe malformed-input handling, or a non-reproducible/unchecked release.
+- **P1 — Required for a dependable workbench:** reliable editing, truthful capability reporting, diagnostics, CI coverage, and correct import/export.
+- **P2 — High-value product improvements:** broader engine support, translation productivity, and large-project performance.
+- **P3 — Optional polish:** conveniences that should follow correctness, safety, and test coverage.
 
 ---
 
-## 📦 Completed Milestones Archive
+## P0 — Correctness, data safety, and trustworthy releases
+
+### 1. Make every injector stage output instead of modifying the installed game
+
+- [ ] **Fix direct writes in the FromSoftware injector.** In `pkg/inject/fromsoftware.go`, the loose-FMG and BND/DCX branches call `os.WriteFile(targetPath, ...)`, where `targetPath` points into `info.GameRoot`. This violates the staging contract used by the other injectors and can overwrite installed game files before the patch is built.
+- [ ] Route all modified bytes to `Project.WorkingDir/out/<game-relative-path>`; never write to the game installation during extraction, translation, injection, or patch creation.
+- [ ] Capture original-file hashes **before** any transformation and make `ModifiedFiles`/`ModifiedFileHashes` refer to the same staged targets consistently.
+- [ ] Add regression tests that hash original files before and after injection and prove they remain byte-for-byte identical; then build, apply, and uninstall an FFP1 patch and prove the original bytes are restored.
+
+**Acceptance criteria:** every built-in injector follows the same staging-only contract; a failed injection cannot change game files or leave a previous staged result buildable.
+
+### 2. Correct FromSoftware archive identity and write-back
+
+- [ ] Preserve the actual archive/container identity for strings extracted from `Data0.bhd`/`Data0.bdt`. In `pkg/extract/fromsoftware_extractor.go`, archive-derived entries currently use a virtual message-archive path as `File` without enough container metadata for the injector to locate the real installed target.
+- [ ] Ensure the injector can distinguish a loose `.fmg`, a loose `.dcx`/BND, and an FMG nested inside an archive. Implement a verified BHD5/BDT rebuild path only when the archive layout and offsets can be preserved safely; otherwise mark those entries read-only and explain why.
+- [ ] Do not return after discovering loose `.fmg` files if supported archive content remains to be scanned. Merge unique entries from all supported sources instead.
+- [ ] Add tests with mixed loose and archived fixtures, duplicate IDs, non-English catalogs, compressed/uncompressed variants, and round-trip validation against the format parsers.
+
+**Acceptance criteria:** every editable entry maps to a real source target and exact archive member; unsupported cases are visibly read-only rather than failing late or targeting a phantom path.
+
+### 3. Make Unreal archive extraction compatible with patch creation
+
+- [ ] Define and implement the write-back contract for `.locres` files found inside `.pak` archives. `pkg/extract/engines.go` records the archive member as the entry's file path, while `UnrealInjector` may stage a loose file at that path; `installer.Build` then validates the original as `GameRoot/GamePath`. An archive-only source is not a loose file, so the end-to-end flow can fail or produce an overlay that the game never reads.
+- [ ] For each Unreal content type, choose one explicitly tested strategy: rebuild the containing archive with compatible tooling, generate a supported loose override, or expose extraction-only/read-only capability. Do not silently package a loose replacement for an archive member.
+- [ ] Preserve container, member path, archive identity, game version, and encryption/signing requirements in project entries/patch metadata.
+- [ ] Add end-to-end fixtures for loose `.locres`, `.pak`-resident `.locres`, and UE5 IoStore. Verify the game-relative installation result and clean uninstall.
+
+**Acceptance criteria:** the UI only offers patch creation when the selected content can actually be applied to the target game using the generated package.
+
+### 4. Harden and test the FFP1 reader/apply/uninstall boundary
+
+- [ ] Add a dedicated C# test harness for `patcher/FarsiForgePatcher.cs` and run it in CI. Current workflow builds the patcher but does not run a comparable malformed-patch/apply/uninstall regression suite.
+- [ ] Validate attacker-controlled lengths and counts before allocating memory or looping: target count, record count, UTF-8 strings, blob boundaries, offsets, integer overflow, final sizes, decompressed sizes, and aggregate resource limits. Include malformed, truncated, duplicate, and oversized FFP1 v1/v2 files.
+- [ ] Add property/fuzz tests for Go FFP1 writer ↔ C# reader compatibility, base hashes, rollback failures, interrupted apply/uninstall, and reparse-point races.
+- [ ] Keep the existing safe-relative-path, base-file hash, rollback, and reparse-point checks; expand tests rather than weakening them.
+
+**Acceptance criteria:** malformed patches fail closed with actionable errors, before touching target files; any failed apply/uninstall either rolls back cleanly or preserves all recoverable backups and reports the paths.
+
+### 5. Make imports validated and atomic
+
+- [ ] Validate imported CSV/XLSX status values against `untranslated`, `translated`, `approved`, and `skipped`. `pkg/exchange/exchange.go` currently converts a supplied status into `core.Status` and passes it to `SetTranslation`, which does not enforce the allowed set.
+- [ ] Validate all rows first (unknown/duplicate IDs, invalid status, malformed rows, conflicting translations) before mutating the project. If validation fails, apply **zero** imported changes and return a report of rejected rows.
+- [ ] Avoid trimming meaningful leading/trailing whitespace from translations silently; define a format-specific policy and preserve intentional whitespace.
+- [ ] Add tests for invalid statuses, duplicated and stale IDs, BOMs, embedded commas/newlines, blank translations, and partial-import rollback.
+
+**Acceptance criteria:** an invalid import never corrupts project state and always reports exactly what was accepted, skipped, or rejected.
+
+### 6. Make releases reproducible, least-privilege, and verifiable
+
+- [ ] Align `.github/workflows/release.yml` with the Go version declared by `go.mod` (`go 1.26.0`); the current workflow's `>=1.22` lower bound is inconsistent with the module requirement.
+- [ ] Add a CI job on pull requests and pushes for `go test ./... -count=1`, `go vet ./...`, frontend dependency install/build/lint/type-check, companion `FarsiForgeTools` tests, and patcher tests. Build/release success must depend on these gates.
+- [ ] Separate build/test permissions from publishing permissions; grant `contents: write` only to the release job.
+- [ ] Pin the companion repository to a tagged version or commit SHA instead of cloning its moving default branch during release builds.
+- [ ] Verify SHA-256 checksums and, where available, signatures for downloaded tools/assets (`repak`, `retoc`, GDRE, font artifacts, and other binaries); fail the release when verification fails.
+- [ ] Generate a release manifest/SBOM with tool versions, source revisions, hashes, licenses, and the exact Go/Node/runtime versions used. Add dependency and secret scanning.
+- [ ] Run a clean-machine smoke test on the produced ZIP: launch the desktop app, inspect tool discovery, extract a fixture, stage a patch, apply it, and uninstall it.
+
+**Acceptance criteria:** the same tagged source and pinned dependencies produce traceable artifacts; a failed test, missing dependency, checksum mismatch, or broken packaged path prevents publication.
+
+---
+
+## P1 — Workbench reliability and truthful capabilities
+
+### 7. Use one capability matrix across backend, frontend, CLI, and docs
+
+- [ ] Expose engine capabilities from the registered detector/extractor/injector implementations instead of repeating engine lists in `frontend/src/app/page.tsx`.
+- [ ] Represent detection, extraction, translation, validation, injection, archive rebuild, font support, and patch-install support separately. Include conditional requirements and precise reasons (e.g. Unity raw-byte candidates without a verified typetree, Unreal `.uexp` strings, Godot's existing Persian `.translation` constraints).
+- [ ] Display the actual capability state and reason before long operations; never rely only on a generic success/failure alert.
+- [ ] Re-audit `docs/support-matrix-audit.md`: it conflicts with the current registries/UI in places, including custom-to-generic injector mapping and current injection registrations. Update it from current code and add a test that catches documentation/capability drift.
+- [ ] Make discovery failures and truncated scans visible. `pkg/scanner/scanner.go` currently suppresses walk/callback errors, while some engine paths have explicit result limits; show skipped files, inaccessible directories, missing keys/tools, and partial extraction counts.
+
+**Acceptance criteria:** the displayed support status is derived from the same capability source the pipeline uses, and each unsupported/partial result explains what can and cannot be done.
+
+### 8. Finish the translation editor as a real workbench
+
+- [ ] Replace the `MAX_VISIBLE = 200` slice in `frontend/src/app/page.tsx` with pagination or virtualized rendering, so translators can reach every item in large projects without relying on search to reveal hidden rows.
+- [ ] Add explicit row status controls (translated/approved/skipped), select/bulk actions, next/previous issue navigation, and visible QA summaries.
+- [ ] Autosave drafts or provide explicit Save/Save All before leaving the translation step. Handle app shutdown, operation failure, and project switching without silently discarding edits.
+- [ ] Add Back navigation and correctly reset all project-specific state when a new game is selected. Prevent overlapping operations and stale results from earlier runs.
+- [ ] Replace `alert(String(error))` and console-only diagnostics with readable in-app errors, recovery suggestions, operation logs, and copyable diagnostic reports.
+- [ ] Replace the hard-coded 50%/100% progress indicator with real progress events, stage names, cancellation where supported, and a clear partial-failure state.
+
+**Acceptance criteria:** projects with 100,000+ strings remain usable; edits are not silently lost; long operations can be understood and safely retried.
+
+### 9. Connect settings and Persian options to real behavior
+
+- [ ] Wire the existing `GetSettings`/`SaveSettings` APIs into the UI, including tools/output directories, game search paths, default language/author, and persisted Persian settings.
+- [ ] The RTL, shaping, Persian digits, and Vazirmatn controls in the current page are local React state only. Persist them and pass the selected values to the project/injection pipeline; a visual toggle must not pretend to change output when it does not.
+- [ ] Wire `Project.FontPath` and the optional `BuildConfig.FontFile` into patch building if a font is supported. Otherwise label the font option as unavailable until font packaging works.
+- [ ] Validate custom paths before saving settings and report a failed tool-registry refresh instead of persisting a path while retaining the old registry.
+- [ ] Add atomic config writes (temporary file, flush, replace) in `pkg/core/config.go`, with invalid/corrupt configuration recovery and migration tests.
+
+**Acceptance criteria:** a restart preserves settings, each displayed toggle demonstrably affects generated output, and invalid settings cannot leave the UI and backend using different values.
+
+### 10. Make CSV/XLSX exchange available in the product
+
+- [ ] Expose the existing `pkg/exchange` CSV/XLSX import/export operations through the Wails `App` API and add corresponding UI actions.
+- [ ] Include a schema/version marker and stable entry IDs; report stale IDs and ambiguous matches instead of guessing based on source text.
+- [ ] Keep import/export non-destructive and round-trip test Persian text, RTL content, newlines, placeholders, status, context, and very large projects.
+
+**Acceptance criteria:** translators can safely collaborate in Excel/CSV and re-import work without losing entry identity, QA state, or formatting.
+
+### 11. Consolidate translation validation and QA
+
+- [ ] Add tests to `pkg/validate` and fix `fmtMatches`: `string(rune(c+'0'))` does not format occurrence counts correctly at 10 or above. Make diagnostic ordering deterministic.
+- [ ] Reconcile `pkg/validate.StandardValidator` and `pkg/textfilter.QA` so placeholder/tag/newline/brace/markup checks have one clearly documented source of truth and are consistently invoked on editor changes, imports, approvals, and before injection.
+- [ ] Expand format-aware placeholder parsing for printf variants, named/numeric format arguments, escaped braces, Rich Text/BBCode, control codes, plural/select tokens, and engine-specific markers.
+- [ ] Make validation severity actionable: block injection on hard errors, allow warnings with explicit acknowledgement, and show exact source/translation differences.
+- [ ] Add tests for mixed Persian/Latin text, emoji, combining marks, repeated placeholders, whitespace, line breaks, markup nesting, maximum length, and RTL text surrounding variables.
+
+**Acceptance criteria:** dangerous placeholder loss is caught before patch creation, false positives are explainable, and validation results are stable across runs.
+
+### 12. Improve tool setup, diagnostics, and external process handling
+
+- [ ] Build a per-operation requirements check instead of checking only a single `Capabilities.ToolName`. Account for Unreal `repak`/`retoc`, UnityPy, FFTools, GDRE, RAGE key-material requirements, and FromSoftware's Oodle dependency as applicable.
+- [ ] Show detected path, version, architecture, license/source, and a test/run result for each required tool. Add refresh and a downloadable/copyable diagnostic report.
+- [ ] Replace arbitrary `pip install <name>` behavior with a documented, pinned requirements set in an isolated environment; avoid silently installing arbitrary packages from UI input.
+- [ ] Bound captured subprocess output, consistently report exit code/stdout/stderr, preserve cancellation, and use explicit timeouts for tool discovery and operations that may hang.
+- [ ] Add fixture-based tests for missing, corrupt, incompatible, wrong-architecture, and non-executable helper tools.
+
+**Acceptance criteria:** prerequisites are detected before work begins and failures identify the missing/incompatible dependency without forcing users to reverse-engineer logs.
+
+### 13. Strengthen filesystem safety and recovery
+
+- [ ] Audit every read/write path—not just the patcher—against symlinks/reparse points and canonical root boundaries, especially backup/restore, generic text injection, FromSoftware staging, launch-game paths, and temporary directories.
+- [ ] Add tests for traversal, Windows drive/UNC paths, junctions, symbolic links, case-insensitive duplicates, path races, interrupted writes, and a target replaced while a process is running.
+- [ ] Make package creation transactional: write the patch, patcher, font, manifest, and README to a temporary staging directory; publish only after every step succeeds; clean up or clearly quarantine failed partial output.
+- [ ] Require the patcher executable for a user-installable package, or explicitly emit a documented portable patch-only artifact. Never generate installation instructions for a file that was not packaged.
+- [ ] Add nil/empty-input checks and failure-recovery tests to public APIs such as backup rollback.
+
+**Acceptance criteria:** failed or interrupted operations do not corrupt the source game/project and never leave a misleading “successful” partial installer.
+
+---
+
+## P2 — Engine depth, scale, and translator productivity
+
+### 14. Expand engine write-back only with end-to-end fixtures
+
+- [ ] **Unity typetree recovery:** recover/validate field identity for stripped builds, retain the raw-scan safety gate, and only enable writes after a candidate passes structural verification.
+- [ ] **Unreal archives:** support a fully tested `.pak` rebuild or supported override workflow for eligible `.locres` files; add explicit version/encryption/IoStore limits.
+- [ ] **Godot locale creation:** create/register Persian locale resources where format/version permits; keep encrypted/embedded or unsupported PCKs read-only with a clear explanation.
+- [ ] **FromSoftware fonts:** build glyph/atlas editing only after text archives have safe staged write-back and restoration tests. Preserve atlas layout, glyph metrics, and fallback fonts.
+- [ ] Evaluate extractors for RPG Maker, Ren'Py, GameMaker, and additional engines based on user demand and the available safe write-back path. Avoid advertising support based on detection/extraction alone.
+
+**Acceptance criteria:** every new supported engine or sub-format has sample fixtures, round-trip parser tests, real-game validation evidence, safe staging, installer/uninstaller coverage, and a documented support level.
+
+### 15. Improve FarsiForgeTools text fidelity and format parsing
+
+- [ ] Replace the generic line-based parser in `FarsiForgeTools/internal/text/text.go` with format-aware handlers: normal CSV files are not reliably handled by the current `key=value` line parser, and XML should not be treated as arbitrary lines.
+- [ ] Handle JSON arrays of objects/nested arrays and report unsupported structures instead of silently omitting strings.
+- [ ] Preserve UTF-8 BOM, line endings, comments, encoding, ordering, and unrelated fields whenever possible; write outputs atomically.
+- [ ] Check all CSV writer flush/close errors and add tests for disk-full/short-write failures, BOMs, escaped quotes, commas/newlines, and large records.
+- [ ] Add corpus-based and fuzz tests for `.locres`, Godot PCK/`.translation`, FMG, BND/DCX, RPF7/GXT2, JSON/CSV/XML, and the FFP1 parser/writer; include malformed/truncated files and resource limits.
+
+**Acceptance criteria:** formats preserve non-translated content byte-for-byte where promised, malformed files fail safely, and release confidence comes from regression fixtures rather than manual success reports alone.
+
+### 16. Support large games and large translation projects
+
+- [ ] Measure extraction and injection time, peak memory, allocations, and output size on representative large games. Publish baseline benchmarks.
+- [ ] Stream large patch payloads through the FFP1 writer/installer instead of repeatedly holding complete patched files and the compressed blob in memory where practical.
+- [ ] Add cancellation and visible progress to long scans, archive extraction, and patch generation; make any hard cap configurable or show exactly what was skipped.
+- [ ] Add incremental rescanning and stable identity-based merge reports (new, changed, removed, unchanged, and preserved translations).
+- [ ] Add backup/project cleanup tools with explicit confirmation and disk-space estimates; never automatically delete original backups or translator work.
+
+**Acceptance criteria:** performance improvements are backed by repeatable benchmarks and do not weaken integrity verification or translation preservation.
+
+### 17. Improve translator productivity
+
+- [ ] Add project-level glossary/terminology rules, protected terms, character/placeholder rules, and optional reusable translation memory.
+- [ ] Add optional, provider-agnostic AI translation suggestions with explicit user opt-in, configurable provider/model, batch limits, retry/rate-limit handling, and a preview before changes are applied. Never overwrite approved translations silently.
+- [ ] Add a diff inspector for source vs translation and before/after extraction, with live RTL/Latin/placeholder preview.
+- [ ] Add duplicate-string detection and suggested bulk translation only where context is compatible; preserve separate entries when meaning may differ.
+- [ ] Add configurable filters for untranslated, QA failures, context, file/container, and maximum-length warnings.
+
+**Acceptance criteria:** suggestions remain optional and reversible; glossary and translation memory never merge unrelated entries by source text alone.
+
+---
+
+## P3 — Distribution and community polish
+
+### 18. Make project and patch formats maintainable over time
+
+- [ ] Add explicit project schema versions and tested migrations; reject or back up unsupported future versions without overwriting user data.
+- [ ] Add patch metadata for target game build/version, content-container strategy, required tools/runtime, and known limitations.
+- [ ] Include user-facing checksums and a patch integrity verification command; consider signing releases and published patch metadata.
+- [ ] Publish supported platform/runtime requirements and a clean-install guide with troubleshooting for missing tools, blocked executables, antivirus false positives, and write-protected games.
+
+### 19. Complete organization-level engineering hygiene
+
+- [ ] Keep the main application and `FarsiForgeTools` versions coordinated: pin helper-tool releases in the main release workflow and document a compatibility table.
+- [ ] Add consistent PR templates/checklists for parser changes, safety boundaries, real-game evidence, fixtures, release notes, and license review.
+- [ ] Add an automated stale-document check for support matrix, dependency versions, and packaging claims. Treat large upstream forks such as AssetRipper as separately versioned dependencies rather than folding their entire upstream codebase into the app's own support claims.
+- [ ] Maintain third-party notices for every bundled executable, font, parser, and downloaded asset, including redistribution rights and the exact upstream version.
+
+---
+
+## Recommended implementation order
+
+1. **First:** FromSoftware staging/data preservation; FromSoftware archive identity; Unreal archive-to-installer semantics.
+2. **Second:** FFP1 malformed-input and rollback tests; import atomicity/status validation; transactional package output.
+3. **Third:** reproducible CI, pinned tool downloads, Go version alignment, checksums, and least-privilege release permissions.
+4. **Fourth:** capability-driven UI, persisted settings/options, workbench autosave/pagination, and CSV/XLSX integration.
+5. **Fifth:** unified QA, helper text parser fidelity, diagnostics, fuzz tests, and large-game benchmarks.
+6. **Then:** engine expansions, glossary/translation memory, optional AI suggestions, visual diff, and auto-updater.
+
+Do not mark a task complete solely because it compiles. Mark it complete after its acceptance criteria pass in automated tests and, for game-format work, the documented fixture or real-game workflow.
+
+---
+
+## Completed milestone archive
+
+The items below were recorded as completed in the previous roadmap. This review did not rerun those tests, and the archive should remain historical evidence rather than an assumption that every current code path is fully covered.
 
 <details>
-<summary><b>Click to expand completed P0–P3 milestones</b></summary>
+<summary><b>Previously reported P0–P3 milestones</b></summary>
 
-### P0 — Security, Reparse-Point Audits & Persistence Hardening
-- [x] Fixed copy-from-base reparse-point escape in FFP1 v2 patcher. Base paths validated during preflight and right before opening.
-- [x] Go-to-C# regression tests verify directory symlinks cannot bypass game root boundaries.
-- [x] Hardened `SaveTranslations`: rejects missing/duplicate IDs, IDs absent from current project, duplicate project IDs, and invalid statuses before mutating project file.
-- [x] Structured tuple identity for re-extraction translation matching (container, file, key, context, source), eliminating field-boundary collisions.
-- [x] Windows case-insensitive project-path identity and volume alias normalization verified.
-- [x] Deterministic Windows interrupted-save verification (no-delete-share handle blocks replacement; temporary files cleaned up).
+### P0 — Security, reparse-point audits, persistence
+- [x] FFP1 v2 copy-from-base checks and reparse-point escape protections.
+- [x] Go/C# regression coverage for game-root boundaries.
+- [x] `SaveTranslations` ID/status validation before persisted mutation.
+- [x] Structured identity for re-extraction translation matching.
+- [x] Windows path normalization and interrupted-save verification.
 
-### P1 — Format Extraction & Injection Validation
-- [x] **Real-game extraction validated across 10 engines**: Unity (Mono/IL2CPP), Unreal (UE4/UE5), Godot (PCK v2–v4), FromSoftware, RAGE, SAGE, Source2, Project Zomboid, Factorio, and Generic structured text.
-- [x] **FromSoftware**: Pure Go FMG encoder (v1/v2 wide/unicode), DCX DFLT compressor, BND4 writer, and FromSoftwareInjector verified on ELDEN RING Data0 (520,750 entries).
-- [x] **RAGE / GTA V**: Decrypted RPF7 traversal via AES-256-ECB and Knuth 32-bit PRNG table derivation using `magic.dat`, verified on GTA V build 1.0.3725.0 (8,669,936 strings across 43 archives).
-- [x] **Unreal Engine**: `.locres` v0–v3 roundtrip with `fftools`, `.pak` container extraction via `repak`, and IoStore `.utoc`/`.ucas` container extraction via `retoc`.
-- [x] **Godot Engine**: PCK v2–v4 extraction via `gdre_tools v2.7.4`, binary `OptimizedTranslation` resource update, and standalone unencrypted PCK rebuild.
-- [x] **Unity**: Raw byte scans flagged; typetree validation prevents unsafe writes.
+### P1 — Format extraction and injection
+- [x] Real-game extraction validation recorded across Unity, Unreal, Godot, FromSoftware, RAGE, SAGE, Source 2, Project Zomboid, Factorio, and generic text.
+- [x] FMG/BND/DCX, RAGE RPF7/GXT2, Unreal `.locres`/archive, and Godot PCK processing milestones recorded.
+- [x] Unity raw-byte candidates are flagged and unsafe unverified writes are rejected.
 
-### P2 — FarsiForgeTools Repository Alignment
-- [x] Implemented Godot 4 binary `OptimizedTranslation` read/write in `FarsiForgeTools`.
-- [x] Added `fftools translation export/import` with source-key hash resolution.
-- [x] Added `fftools pck rebuild` for standalone unencrypted PCK v2/v3/v4.
-- [x] End-to-end synthetic install test: inject → rebuild PCK → FFP1 package → apply → uninstall → byte-for-byte restore.
+### P2 — Companion repository alignment
+- [x] Godot 4 binary `OptimizedTranslation` read/write in `FarsiForgeTools`.
+- [x] `fftools translation export/import` with source-key hash resolution.
+- [x] Standalone unencrypted Godot PCK v2/v3/v4 rebuild.
+- [x] Synthetic install/apply/uninstall restoration scenario recorded.
 
-### P3 — Registry Alignment & Verification Matrix
-- [x] Mapped "custom" engine to "generic" text extractor.
-- [x] Explicit unsupported status errors for detection-only (UE3, Source 1) and extract-only (SAGE, GoldSrc, Source 2, Factorio, Project Zomboid, RAGE).
-- [x] Frontend UI status badges and disabled buttons prevent invalid writes.
-- [x] End-to-end test fixtures validate all 7 text categories (dialogue, subtitles, UI, journals/notes, items, tutorials, quests).
+### P3 — Registry and support status
+- [x] Custom-engine mapping to generic extraction/injection.
+- [x] Explicit detection-only and extract-only errors for known unsupported engines.
+- [x] Frontend status badges/disabled actions for known unsupported states.
+- [x] Synthetic coverage for dialogue, subtitles, UI, notes, items, tutorials, and quests.
 
 </details>
