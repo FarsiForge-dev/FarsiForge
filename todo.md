@@ -151,6 +151,61 @@ This roadmap is based on a source-level review of the application, Wails/Next.js
 
 ---
 
+## P1/P2 — Source-aware asset browser, precise text extraction, and game-specific fonts
+
+These features should be implemented as one source-aware workflow: inspect game files and their parsed contents first, review reliable text candidates, then edit only assets whose structure and write-back strategy are known. Do not turn a raw byte scan into an authoritative translation list, and do not assume every game can use the same font replacement method.
+
+### A — P1: Engine-aware compiled-asset browser and source provenance
+
+- [ ] Replace the translation-first experience with an **asset browser** that starts from the selected game root and presents a hierarchical tree where supported: folders → archives/containers → files → parsed resources/objects → text-bearing fields/records. Preserve original game-relative paths and container/member identity.
+- [ ] Add engine-specific browse providers rather than pretending that every binary format can be opened generically. Start with formats that already have parsers: Unity assets/objects (UnityPy and verified type-tree/property data), Unreal `.pak`/IoStore entries and `.locres`/structured assets, Godot PCK/resources/catalogs, FromSoftware FMG/BND/DCX where the parser provides member identity, and generic structured text files. Unknown or opaque formats must say **not parsed / unsupported** instead of displaying invented structure.
+- [ ] Selecting a file or resource should show metadata and a content preview: engine, resource/object type, object/key/field ID, container/member path, source offset when known, text count, extraction method, confidence, and whether the candidate can be edited and injected. Show the exact reason when a candidate is read-only (for example, unverified Unity raw bytes or heuristic-only Unreal `.uexp` strings).
+- [ ] Group content by its **real source resource**; do not flatten every string from every compiled file into one undifferentiated dialogue list. Provide distinct views/categories for dialogue/subtitles, menus/UI, items, quests/journal, tutorials/help, system/technical text, and unclassified candidates. A sentence found in a binary blob is not automatically dialogue.
+- [ ] Add search, filtering by engine/file/resource/category/confidence/editability, file-level string counts, and a details panel. Virtualize or paginate long file/resource/entry lists; no candidate may be silently inaccessible because only the first 200 rows render.
+- [ ] Maintain provenance from every displayed string back to a stable source identity. Extend the project schema/versioned metadata as needed without changing IDs in a way that discards existing translations; preserve container, object/field/key, context, source text, and write-back capability across project reload and re-extraction.
+- [ ] Keep a separate advanced **raw candidates** view for printable strings recovered without structural parsing. Make such records reviewable and exportable, but visibly lower-confidence/read-only until a format-specific parser establishes a reliable field identity. Do not make them writable merely because they look like natural language.
+- [ ] Update the Wails API and frontend to browse project files/resources without forcing a full translation extraction first; support lazy parsing of the selected resource and cancellation/progress for expensive archive scans.
+- [ ] Add fixture-based tests for tree structure, container/member identity, stable IDs, unsupported formats, path safety, large resources, and preservation of prior translations. Include nested archives and similarly named assets so paths cannot collide.
+
+**Acceptance scenario — compiled game assets:** open a Unity game containing text assets and raw MonoBehaviour byte candidates, an Unreal game containing both `.locres` and heuristic `.uexp` strings, and a Godot PCK. The browser shows the actual files/resources and available metadata. Verified structured text is grouped under its owning resource; raw/heuristic strings appear separately with confidence and read-only reasons. Only actual dialogue records are labelled dialogue; menu, item, technical, and unknown text are not mislabelled. Selecting any item reveals exactly where it came from and whether it is safe to write back.
+
+**Acceptance criteria:** every editable entry has a stable, traceable source location and a supported write-back route. Unknown formats are clearly marked as unknown, and no text is labelled dialogue solely because it contains sentence-like words.
+
+### B — P1: Precision-first text candidate classification and filtering
+
+- [ ] Create a shared extraction/classification pipeline used consistently by all extractors, instead of allowing each parser to use unrelated thresholds such as “contains letters” or a raw printable-byte scan as its final acceptance rule.
+- [ ] Combine structural evidence (engine resource/field type, localization table, dialogue node, UI/widget, item/quest record), source context/path, placeholder/tag parsing, natural-language heuristics, duplicate signals, and confidence. The shared `textfilter.IsTranslatable` check is useful but is not, by itself, proof that a string is intended for translation or dialogue.
+- [ ] Add explicit candidate classes such as `high-confidence translatable`, `likely technical/identifier`, `raw/heuristic`, and `needs review`. Use **high-confidence candidates** as the default translation view, with a visible count of filtered/reviewable candidates and an advanced “show all” control; never silently discard unknown candidates.
+- [ ] Filter obvious binary/engine noise, hashes, paths, type names, debug/log strings, property identifiers, empty/markup-only records, and non-language payloads when evidence supports that decision. Avoid over-filtering legitimate short UI labels, item names, options such as “Yes/No”, key prompts, placeholders mixed with text, Persian/Arabic source strings, or strings whose meaning depends on context.
+- [ ] Treat semantic category and write-back capability as separate dimensions: a record can be readable but unclassified, categorized but read-only, or translatable but not injectable for that engine/version. Never infer editability from confidence alone.
+- [ ] Deduplicate only records proven to represent the same stable source identity. Identical visible wording in different files, dialogue speakers, languages, keys, or contexts must remain distinct.
+- [ ] Provide user controls to include/exclude categories, mark false positives, promote a candidate to translatable, or keep a useful short/non-dialogue string. Persist review decisions against stable source identity and carry them forward only when that identity still matches after re-extraction.
+- [ ] Build a labelled golden fixture corpus containing real dialogue, UI labels, item/quest names, tutorial/help text, source-code identifiers, font/resource metadata, debug text, hashes, placeholders, markup, and binary noise across supported engines. Measure precision/recall (or an equivalent reviewed false-positive/false-negative report) and regressions per engine before changing heuristics.
+- [ ] Report extraction statistics per file/resource: parsed records, accepted candidates, filtered candidates by reason, unclassified/raw records, failures, and unsupported data. Make any truncation/cap explicit and actionable.
+
+**Acceptance scenario — a noisy extraction:** a compiled widget contains “Start Game”, an internal class name, a GUID, a font asset path, a debug message, and a dialogue line. The normal translation view shows likely translatable records in their actual categories; the raw/review view retains uncertain candidates with reasons. “Start Game” is not labelled dialogue without structural evidence, the GUID and class name are not shown as ordinary translation work, and the user can reveal filtered candidates instead of losing them.
+
+**Acceptance criteria:** default results are materially cleaner without silently losing short but meaningful UI strings. Per-engine precision/recall is tracked against reviewed fixtures, and raw heuristic candidates never become writable unless a verified parser supports their source identity.
+
+### C — P1: Game-font inventory and diagnostic report; P2: safe, game-specific replacement
+
+- [ ] Add a **Font Inventory / Font Scan** operation separate from the current Tools-directory discovery. Scan the selected game installation and supported archives/resources for font assets and their references, not just files whose names end in `.ttf`; classify direct font files, engine font resources, bitmap/glyph atlases, and font metadata as different asset types.
+- [ ] Start with engine adapters where parsers or metadata are available: loose `.ttf/.otf/.ttc` files, Unity Font/TextMeshPro resources and atlases, Unreal Font/FontFace resources and associated atlases, Godot font resources/`FontFile` inside supported PCK/resources, and documented read-only detection for formats such as custom FromSoftware glyph atlases until a safe writer exists. Do not claim universal discovery for opaque/encrypted/unsupported containers.
+- [ ] Produce a browsable/exportable inventory report with asset path, containing archive/PCK, resource/object ID, engine/version, detected format, font family/style where recoverable, atlas/texture and material dependencies where known, reference/usage evidence, detection confidence, glyph-coverage results, and whether export/replacement is supported. Distinguish **not found**, **not parsed**, and **no font detected**.
+- [ ] Allow the user to inspect/export a copy of a font resource to the project work area and choose a custom replacement manually. Keep original assets untouched; record source hash, target hash, resource identity, and replacement decision in the project/patch manifest.
+- [ ] Add a font preview/diagnostic test string containing Persian and Arabic letters, presentation forms as applicable, Persian/Latin digits, punctuation, mixed RTL/LTR text, and representative glyphs from the game. Report missing glyphs and, when possible, family/style/metrics differences before replacement. Font glyph coverage does not guarantee that the game supports RTL directionality or Arabic shaping; report these as separate capabilities.
+- [ ] Replace the single mandatory Vazirmatn assumption with an optional suggested font, not an unconditional replacement. Respect the target game's existing font system, encoding, glyph atlas, layout, line height, fallback chain, and licensing constraints. Importing a TTF/OTF must not be treated as equivalent to rebuilding a bitmap glyph atlas or an engine-serialized font object.
+- [ ] Implement replacement only through an explicit engine-specific font adapter with a declared `FontDiscovery`, `FontExport`, and `FontInjection` capability (or equivalent); unsupported fonts/resources stay analysis-only. Where the engine requires atlas repacking or character-map/metric changes, implement and validate those transformations before enabling the UI action.
+- [ ] Connect `Project.FontPath`, font-selection settings, `InjectorCaps.FontInjection`, and `BuildConfig.FontFile` end-to-end, or hide/disable unsupported controls with an explanation. The current Vazirmatn UI toggle is local frontend state; tool discovery looks for Vazirmatn in the Tools folder and does not constitute scanning the selected game's fonts. Do not show “font installed/replaced” unless the generated patch actually contains and applies the selected asset.
+- [ ] Stage every replacement under the project work directory and include it in the final patch with all required companion assets. Extend uninstall/apply tests so font and atlas changes are restored along with text assets byte-for-byte. Never overwrite installed game files during scan, preview, export, or injection staging.
+- [ ] Add fixture-based tests for font metadata parsing, nested archive/PCK discovery, missing glyph detection, unsupported/proprietary font formats, corrupt font files, custom font selection, duplicate resource names, target hash checks, patch packaging, and uninstall restoration. Document redistribution/license checks for any font bundled by default.
+
+**Acceptance scenario — two games, two font systems:** Game A stores a standard font resource inside a Unity asset bundle; Game B uses a custom bitmap glyph atlas. FarsiForge reports each asset, its container and resource identity, what is actually known about the font and glyph coverage, and whether an adapter can safely replace it. The translator chooses a licensed custom font for Game A; a staged patch is built only if the Unity replacement adapter and validation pass. Game B remains read-only until an atlas adapter can preserve glyph metrics/mapping. The original installed files remain unchanged and uninstall restores them exactly.
+
+**Acceptance criteria:** font scanning returns an auditable inventory rather than assuming Vazirmatn is the right font. A replacement is offered only when the engine/resource adapter can safely perform and verify it; otherwise the report provides useful information without risking the game installation.
+
+---
+
 ## P2 — Engine depth, scale, and translator productivity
 
 ### 14. Expand engine write-back only with end-to-end fixtures
@@ -218,9 +273,11 @@ This roadmap is based on a source-level review of the application, Wails/Next.js
 1. **First:** FromSoftware staging/data preservation; FromSoftware archive identity; Unreal archive-to-installer semantics.
 2. **Second:** FFP1 malformed-input and rollback tests; import atomicity/status validation; transactional package output.
 3. **Third:** reproducible CI, pinned tool downloads, Go version alignment, checksums, and least-privilege release permissions.
-4. **Fourth:** capability-driven UI, persisted settings/options, workbench autosave/pagination, and CSV/XLSX integration.
-5. **Fifth:** unified QA, helper text parser fidelity, diagnostics, fuzz tests, and large-game benchmarks.
-6. **Then:** engine expansions, glossary/translation memory, optional AI suggestions, visual diff, and auto-updater.
+4. **Fourth:** shared extraction/classification baseline and labelled false-positive/false-negative fixtures; engine-aware asset browser with source provenance.
+5. **Fifth:** game-font inventory/report and custom-font preview/coverage validation (read-only first); add replacement adapters only when their staging, package, and uninstall path is verified.
+6. **Sixth:** capability-driven UI, persisted settings/options, workbench autosave/pagination, and CSV/XLSX integration.
+7. **Seventh:** unified QA, helper text parser fidelity, diagnostics, fuzz tests, and large-game benchmarks.
+8. **Then:** engine expansions, glossary/translation memory, optional AI suggestions, visual diff, and auto-updater.
 
 Do not mark a task complete solely because it compiles. Mark it complete after its acceptance criteria pass in automated tests and, for game-format work, the documented fixture or real-game workflow.
 
