@@ -4,7 +4,7 @@
 
 **A professional, evidence-driven game localization workbench with format-specific extraction, Persian RTL shaping, and reversible patch installers.**
 
-[![Go Version](https://img.shields.io/badge/Go-1.22%2B-00ADD8.svg?style=flat-square&logo=go)](https://golang.org)
+[![Go Version](https://img.shields.io/badge/Go-1.26.0-00ADD8.svg?style=flat-square&logo=go)](https://golang.org)
 [![React](https://img.shields.io/badge/React-18-61DAFB.svg?style=flat-square&logo=react)](https://reactjs.org/)
 [![Next.js](https://img.shields.io/badge/Next.js-14-000000.svg?style=flat-square&logo=nextdotjs)](https://nextjs.org/)
 [![Wails](https://img.shields.io/badge/Wails-v2-DF1A29.svg?style=flat-square&logo=wails)](https://wails.io)
@@ -31,6 +31,13 @@
   - Dedicated roundtrip write-back pipelines that strictly stage modified assets in an isolated workspace.
   - Original game installations are strictly treated as **read-only** and never mutated during extraction or staging.
   - SHA-256 integrity binding guarantees that patch packages are only built against verified, uncorrupted base assets.
+- **📊 Atomic CSV/XLSX Translation Exchange:**
+  - Seamlessly export and import translation databases to/from Excel (`.xlsx`) and CSV.
+  - Validate-all-first policy ensures zero project mutation on duplicate IDs, unknown entries, or invalid statuses.
+  - Intentional leading/trailing whitespace preservation and UTF-8 BOM encoding.
+- **🛡️ Unified Translation QA & Injection Gate:**
+  - Standardized validation engine tracking placeholders, tags, brackets, and line balance.
+  - Hard errors (missing placeholders, unclosed tags) block injection to prevent runtime game crashes.
 - **🔄 Persian Text Shaping & Typography:**
   - Integrated bidirectional (BiDi) reordering and Right-to-Left (RTL) reshaping.
   - Zero-Width Non-Joiner (ZWNJ / نیم‌فاصله) preservation and automatic Arabic-Indic / Persian digit normalization.
@@ -40,7 +47,7 @@
   - Preflight reparse-point and directory symlink security checks preventing path escape attacks.
   - Automatic backup of original game files and atomic byte-for-byte uninstall/restore capability.
 - **🎨 Interactive Desktop Workbench & Headless CLI:**
-  - Modern desktop interface built on Wails v2, Next.js 14, and TailwindCSS with fuzzy search, status filters (Untranslated, In Progress, QA, Approved), and QA notes.
+  - Modern desktop interface built on Wails v2, Next.js 14, and TailwindCSS with pagination (50 items/page), fuzzy search, status filters (Untranslated, In Progress, QA, Approved), and live QA counters.
   - Fully featured headless CLI (`farsiforge-cli.exe`) for automation, CI/CD, and batch scripts.
 
 ---

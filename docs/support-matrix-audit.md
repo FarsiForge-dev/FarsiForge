@@ -40,12 +40,12 @@
   - `pkg/extract/engines_classic.go:364` (goldsrc), `:404` (source2), `:444` (factorio), `:480` (zomboid), `:521` (sage)
   - `pkg/extract/rage_extractor.go:20` (rage), `pkg/extract/fromsoftware_extractor.go:19` (fromsoftware)
 
-### 1.3 Injection — `pkg/inject` (4 injectors, no fallback)
+### 1.3 Injection — `pkg/inject` (5 injectors registered, custom remapped to generic)
 
-- Registered injectors: `unity`, `unreal`, `godot`, `generic` — `pkg/inject/registry.go:46-55` (register calls `:49-52`).
-- `GetInjector` has **no fallback** — unknown engine returns `no injector available for engine: %s` — `pkg/inject/registry.go:36-42`.
-- `inject.Run` resolves `GetInjector(info.Engine)` with **no remapping anywhere** — `pkg/inject/registry.go:68`; on error it aborts — `pkg/inject/registry.go:69-71`.
-- `SupportedEngine()` anchors: `pkg/inject/engines.go:156` (unity), `:236` (unreal), `:327` (godot), `:344` (generic).
+- Registered injectors: `unity`, `unreal`, `godot`, `generic`, `fromsoftware` — `pkg/inject/registry.go:61-71`.
+- `GetInjector` maps `"custom"` to `"generic"` automatically (`pkg/inject/registry.go:42-47`).
+- Extract-only engines (`sage`, `goldsrc`, `source2`, `factorio`, `zomboid`, `rage`) and detection-only engines (`ue3`, `source`) return explicit, actionable errors (`pkg/inject/registry.go:49-56`).
+- SupportedEngine() anchors: `pkg/inject/engines.go:156` (unity), `:236` (unreal), `:327` (godot), `:344` (generic), `pkg/inject/fromsoftware.go:27` (fromsoftware).
 
 ### 1.4 Wiring — `app.go`
 

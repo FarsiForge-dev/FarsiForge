@@ -8,6 +8,7 @@ import (
 
 	"farsiforge/pkg/core"
 	"farsiforge/pkg/extract"
+	"farsiforge/pkg/inject"
 )
 
 // TextCategory classifies game text for localization workflow.
@@ -156,5 +157,45 @@ func TestFixtureMatrix(t *testing.T) {
 	}
 	if len(proj.Entries) != len(samples) {
 		t.Fatalf("project entry count = %d, want %d", len(proj.Entries), len(samples))
+	}
+}
+
+// TestEngineSupportMatrixDrift verifies that every engine detected by the system
+// has an exact, tested capability boundary in pkg/inject, catching registry drift.
+func TestEngineSupportMatrixDrift(t *testing.T) {
+	injectReg := inject.DefaultRegistry()
+
+	// Supported for injection/write-back
+	injectableEngines := []string{"unity", "unreal", "godot", "generic", "custom", "fromsoftware"}
+	for _, engine := range injectableEngines {
+		inj, err := injectReg.GetInjector(engine)
+		if err != nil {
+			t.Errorf("expected injector for %q, got error: %v", engine, err)
+		}
+		if inj == nil {
+			t.Errorf("injector for %q is nil", engine)
+		}
+	}
+
+	// Extract-only engines: must fail with descriptive extract-only message
+	extractOnlyEngines := []string{"sage", "goldsrc", "source2", "factorio", "zomboid", "rage"}
+	for _, engine := range extractOnlyEngines {
+		_, err := injectReg.GetInjector(engine)
+		if err == nil {
+			t.Errorf("expected extract-only error for %q, got nil", engine)
+		} else if !bytes.Contains([]byte(err.Error()), []byte("extract-only")) {
+			t.Errorf("expected 'extract-only' in error for %q, got: %v", engine, err)
+		}
+	}
+
+	// Detection-only engines: must fail with descriptive detection-only message
+	detectOnlyEngines := []string{"ue3", "source"}
+	for _, engine := range detectOnlyEngines {
+		_, err := injectReg.GetInjector(engine)
+		if err == nil {
+			t.Errorf("expected detection-only error for %q, got nil", engine)
+		} else if !bytes.Contains([]byte(err.Error()), []byte("detection-only")) {
+			t.Errorf("expected 'detection-only' in error for %q, got: %v", engine, err)
+		}
 	}
 }

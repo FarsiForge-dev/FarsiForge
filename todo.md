@@ -21,10 +21,10 @@ This roadmap is based on a source-level review of the application, Wails/Next.js
 
 ### 1. Make every injector stage output instead of modifying the installed game
 
-- [ ] **Fix direct writes in the FromSoftware injector.** In `pkg/inject/fromsoftware.go`, the loose-FMG and BND/DCX branches call `os.WriteFile(targetPath, ...)`, where `targetPath` points into `info.GameRoot`. This violates the staging contract used by the other injectors and can overwrite installed game files before the patch is built.
-- [ ] Route all modified bytes to `Project.WorkingDir/out/<game-relative-path>`; never write to the game installation during extraction, translation, injection, or patch creation.
-- [ ] Capture original-file hashes **before** any transformation and make `ModifiedFiles`/`ModifiedFileHashes` refer to the same staged targets consistently.
-- [ ] Add regression tests that hash original files before and after injection and prove they remain byte-for-byte identical; then build, apply, and uninstall an FFP1 patch and prove the original bytes are restored.
+- [x] **Fix direct writes in the FromSoftware injector.** In `pkg/inject/fromsoftware.go`, the loose-FMG and BND/DCX branches call `os.WriteFile(targetPath, ...)`, where `targetPath` points into `info.GameRoot`. This violates the staging contract used by the other injectors and can overwrite installed game files before the patch is built.
+- [x] Route all modified bytes to `Project.WorkingDir/out/<game-relative-path>`; never write to the game installation during extraction, translation, injection, or patch creation.
+- [x] Capture original-file hashes **before** any transformation and make `ModifiedFiles`/`ModifiedFileHashes` refer to the same staged targets consistently.
+- [x] Add regression tests that hash original files before and after injection and prove they remain byte-for-byte identical; then build, apply, and uninstall an FFP1 patch and prove the original bytes are restored.
 
 **Acceptance criteria:** every built-in injector follows the same staging-only contract; a failed injection cannot change game files or leave a previous staged result buildable.
 
@@ -57,20 +57,20 @@ This roadmap is based on a source-level review of the application, Wails/Next.js
 
 ### 5. Make imports validated and atomic
 
-- [ ] Validate imported CSV/XLSX status values against `untranslated`, `translated`, `approved`, and `skipped`. `pkg/exchange/exchange.go` currently converts a supplied status into `core.Status` and passes it to `SetTranslation`, which does not enforce the allowed set.
-- [ ] Validate all rows first (unknown/duplicate IDs, invalid status, malformed rows, conflicting translations) before mutating the project. If validation fails, apply **zero** imported changes and return a report of rejected rows.
-- [ ] Avoid trimming meaningful leading/trailing whitespace from translations silently; define a format-specific policy and preserve intentional whitespace.
-- [ ] Add tests for invalid statuses, duplicated and stale IDs, BOMs, embedded commas/newlines, blank translations, and partial-import rollback.
+- [x] Validate imported CSV/XLSX status values against `untranslated`, `translated`, `approved`, and `skipped`. `pkg/exchange/exchange.go` currently converts a supplied status into `core.Status` and passes it to `SetTranslation`, which does not enforce the allowed set.
+- [x] Validate all rows first (unknown/duplicate IDs, invalid status, malformed rows, conflicting translations) before mutating the project. If validation fails, apply **zero** imported changes and return a report of rejected rows.
+- [x] Avoid trimming meaningful leading/trailing whitespace from translations silently; define a format-specific policy and preserve intentional whitespace.
+- [x] Add tests for invalid statuses, duplicated and stale IDs, BOMs, embedded commas/newlines, blank translations, and partial-import rollback.
 
 **Acceptance criteria:** an invalid import never corrupts project state and always reports exactly what was accepted, skipped, or rejected.
 
 ### 6. Make releases reproducible, least-privilege, and verifiable
 
-- [ ] Align `.github/workflows/release.yml` with the Go version declared by `go.mod` (`go 1.26.0`); the current workflow's `>=1.22` lower bound is inconsistent with the module requirement.
-- [ ] Add a CI job on pull requests and pushes for `go test ./... -count=1`, `go vet ./...`, frontend dependency install/build/lint/type-check, companion `FarsiForgeTools` tests, and patcher tests. Build/release success must depend on these gates.
-- [ ] Separate build/test permissions from publishing permissions; grant `contents: write` only to the release job.
-- [ ] Pin the companion repository to a tagged version or commit SHA instead of cloning its moving default branch during release builds.
-- [ ] Verify SHA-256 checksums and, where available, signatures for downloaded tools/assets (`repak`, `retoc`, GDRE, font artifacts, and other binaries); fail the release when verification fails.
+- [x] Align `.github/workflows/release.yml` with the Go version declared by `go.mod` (`go 1.26.0`); the current workflow's `>=1.22` lower bound is inconsistent with the module requirement.
+- [x] Add a CI job on pull requests and pushes for `go test ./... -count=1`, `go vet ./...`, frontend dependency install/build/lint/type-check, companion `FarsiForgeTools` tests, and patcher tests. Build/release success must depend on these gates.
+- [x] Separate build/test permissions from publishing permissions; grant `contents: write` only to the release job.
+- [x] Pin the companion repository to a tagged version or commit SHA instead of cloning its moving default branch during release builds.
+- [x] Verify SHA-256 checksums and, where available, signatures for downloaded tools/assets (`repak`, `retoc`, GDRE, font artifacts, and other binaries); fail the release when verification fails.
 - [ ] Generate a release manifest/SBOM with tool versions, source revisions, hashes, licenses, and the exact Go/Node/runtime versions used. Add dependency and secret scanning.
 - [ ] Run a clean-machine smoke test on the produced ZIP: launch the desktop app, inspect tool discovery, extract a fixture, stage a patch, apply it, and uninstall it.
 
@@ -85,17 +85,17 @@ This roadmap is based on a source-level review of the application, Wails/Next.js
 - [ ] Expose engine capabilities from the registered detector/extractor/injector implementations instead of repeating engine lists in `frontend/src/app/page.tsx`.
 - [ ] Represent detection, extraction, translation, validation, injection, archive rebuild, font support, and patch-install support separately. Include conditional requirements and precise reasons (e.g. Unity raw-byte candidates without a verified typetree, Unreal `.uexp` strings, Godot's existing Persian `.translation` constraints).
 - [ ] Display the actual capability state and reason before long operations; never rely only on a generic success/failure alert.
-- [ ] Re-audit `docs/support-matrix-audit.md`: it conflicts with the current registries/UI in places, including custom-to-generic injector mapping and current injection registrations. Update it from current code and add a test that catches documentation/capability drift.
+- [x] Re-audit `docs/support-matrix-audit.md`: it conflicts with the current registries/UI in places, including custom-to-generic injector mapping and current injection registrations. Update it from current code and add a test that catches documentation/capability drift.
 - [ ] Make discovery failures and truncated scans visible. `pkg/scanner/scanner.go` currently suppresses walk/callback errors, while some engine paths have explicit result limits; show skipped files, inaccessible directories, missing keys/tools, and partial extraction counts.
 
 **Acceptance criteria:** the displayed support status is derived from the same capability source the pipeline uses, and each unsupported/partial result explains what can and cannot be done.
 
 ### 8. Finish the translation editor as a real workbench
 
-- [ ] Replace the `MAX_VISIBLE = 200` slice in `frontend/src/app/page.tsx` with pagination or virtualized rendering, so translators can reach every item in large projects without relying on search to reveal hidden rows.
-- [ ] Add explicit row status controls (translated/approved/skipped), select/bulk actions, next/previous issue navigation, and visible QA summaries.
-- [ ] Autosave drafts or provide explicit Save/Save All before leaving the translation step. Handle app shutdown, operation failure, and project switching without silently discarding edits.
-- [ ] Add Back navigation and correctly reset all project-specific state when a new game is selected. Prevent overlapping operations and stale results from earlier runs.
+- [x] Replace the `MAX_VISIBLE = 200` slice in `frontend/src/app/page.tsx` with pagination or virtualized rendering, so translators can reach every item in large projects without relying on search to reveal hidden rows.
+- [x] Add explicit row status controls (translated/approved/skipped), select/bulk actions, next/previous issue navigation, and visible QA summaries.
+- [x] Autosave drafts or provide explicit Save/Save All before leaving the translation step. Handle app shutdown, operation failure, and project switching without silently discarding edits.
+- [x] Add Back navigation and correctly reset all project-specific state when a new game is selected. Prevent overlapping operations and stale results from earlier runs.
 - [ ] Replace `alert(String(error))` and console-only diagnostics with readable in-app errors, recovery suggestions, operation logs, and copyable diagnostic reports.
 - [ ] Replace the hard-coded 50%/100% progress indicator with real progress events, stage names, cancellation where supported, and a clear partial-failure state.
 
@@ -104,28 +104,28 @@ This roadmap is based on a source-level review of the application, Wails/Next.js
 ### 9. Connect settings and Persian options to real behavior
 
 - [ ] Wire the existing `GetSettings`/`SaveSettings` APIs into the UI, including tools/output directories, game search paths, default language/author, and persisted Persian settings.
-- [ ] The RTL, shaping, Persian digits, and Vazirmatn controls in the current page are local React state only. Persist them and pass the selected values to the project/injection pipeline; a visual toggle must not pretend to change output when it does not.
+- [x] The RTL, shaping, Persian digits, and Vazirmatn controls in the current page are local React state only. Persist them and pass the selected values to the project/injection pipeline; a visual toggle must not pretend to change output when it does not.
 - [ ] Wire `Project.FontPath` and the optional `BuildConfig.FontFile` into patch building if a font is supported. Otherwise label the font option as unavailable until font packaging works.
-- [ ] Validate custom paths before saving settings and report a failed tool-registry refresh instead of persisting a path while retaining the old registry.
-- [ ] Add atomic config writes (temporary file, flush, replace) in `pkg/core/config.go`, with invalid/corrupt configuration recovery and migration tests.
+- [x] Validate custom paths before saving settings and report a failed tool-registry refresh instead of persisting a path while retaining the old registry.
+- [x] Add atomic config writes (temporary file, flush, replace) in `pkg/core/config.go`, with invalid/corrupt configuration recovery and migration tests.
 
 **Acceptance criteria:** a restart preserves settings, each displayed toggle demonstrably affects generated output, and invalid settings cannot leave the UI and backend using different values.
 
 ### 10. Make CSV/XLSX exchange available in the product
 
-- [ ] Expose the existing `pkg/exchange` CSV/XLSX import/export operations through the Wails `App` API and add corresponding UI actions.
-- [ ] Include a schema/version marker and stable entry IDs; report stale IDs and ambiguous matches instead of guessing based on source text.
-- [ ] Keep import/export non-destructive and round-trip test Persian text, RTL content, newlines, placeholders, status, context, and very large projects.
+- [x] Expose the existing `pkg/exchange` CSV/XLSX import/export operations through the Wails `App` API and add corresponding UI actions.
+- [x] Include a schema/version marker and stable entry IDs; report stale IDs and ambiguous matches instead of guessing based on source text.
+- [x] Keep import/export non-destructive and round-trip test Persian text, RTL content, newlines, placeholders, status, context, and very large projects.
 
 **Acceptance criteria:** translators can safely collaborate in Excel/CSV and re-import work without losing entry identity, QA state, or formatting.
 
 ### 11. Consolidate translation validation and QA
 
-- [ ] Add tests to `pkg/validate` and fix `fmtMatches`: `string(rune(c+'0'))` does not format occurrence counts correctly at 10 or above. Make diagnostic ordering deterministic.
-- [ ] Reconcile `pkg/validate.StandardValidator` and `pkg/textfilter.QA` so placeholder/tag/newline/brace/markup checks have one clearly documented source of truth and are consistently invoked on editor changes, imports, approvals, and before injection.
-- [ ] Expand format-aware placeholder parsing for printf variants, named/numeric format arguments, escaped braces, Rich Text/BBCode, control codes, plural/select tokens, and engine-specific markers.
-- [ ] Make validation severity actionable: block injection on hard errors, allow warnings with explicit acknowledgement, and show exact source/translation differences.
-- [ ] Add tests for mixed Persian/Latin text, emoji, combining marks, repeated placeholders, whitespace, line breaks, markup nesting, maximum length, and RTL text surrounding variables.
+- [x] Add tests to `pkg/validate` and fix `fmtMatches`: `string(rune(c+'0'))` does not format occurrence counts correctly at 10 or above. Make diagnostic ordering deterministic.
+- [x] Reconcile `pkg/validate.StandardValidator` and `pkg/textfilter.QA` so placeholder/tag/newline/brace/markup checks have one clearly documented source of truth and are consistently invoked on editor changes, imports, approvals, and before injection.
+- [x] Expand format-aware placeholder parsing for printf variants, named/numeric format arguments, escaped braces, Rich Text/BBCode, control codes, plural/select tokens, and engine-specific markers.
+- [x] Make validation severity actionable: block injection on hard errors, allow warnings with explicit acknowledgement, and show exact source/translation differences.
+- [x] Add tests for mixed Persian/Latin text, emoji, combining marks, repeated placeholders, whitespace, line breaks, markup nesting, maximum length, and RTL text surrounding variables.
 
 **Acceptance criteria:** dangerous placeholder loss is caught before patch creation, false positives are explainable, and validation results are stable across runs.
 
