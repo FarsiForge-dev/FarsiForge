@@ -26,7 +26,10 @@ import {
   Copy,
   Check,
   X,
-  Info
+  Info,
+  Lock,
+  Filter,
+  Sparkles
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -51,7 +54,9 @@ import {
   GetEngineCapabilities,
   GetEngineCapability,
   GetSettings,
-  SaveSettings
+  SaveSettings,
+  UpdateEntryCandidate,
+  ClassifyProjectEntries
 } from "../../wailsjs/go/main/App";
 import { EventsOn } from "../../wailsjs/runtime/runtime";
 import { core, main } from "../../wailsjs/go/models";
@@ -145,10 +150,44 @@ export default function FarsiForgeDashboard() {
   const isDetectionOnly = currentCap ? !currentCap.can_extract : false;
   const isExtractOnly = currentCap ? (currentCap.can_extract && !currentCap.can_inject) : false;
 
+  const [candidateClassFilter, setCandidateClassFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+
+  const classificationCounts = useMemo(() => {
+    let high = 0, review = 0, raw = 0, tech = 0, readOnly = 0;
+    for (const t of translations) {
+      const cls = t.candidate_class || "high-confidence";
+      if (cls === "high-confidence") high++;
+      else if (cls === "needs-review") review++;
+      else if (cls === "raw-heuristic") raw++;
+      else if (cls === "technical") tech++;
+      if (t.read_only) readOnly++;
+    }
+    return { high, review, raw, tech, readOnly, total: translations.length };
+  }, [translations]);
+
+  const handleUpdateCandidate = async (entryID: string, newClass?: string, newCategory?: string) => {
+    if (!gameInfo?.game_root) return;
+    try {
+      await UpdateEntryCandidate(gameInfo.game_root, entryID, newClass || "", newCategory || "");
+      setTranslations((prev) =>
+        prev.map((e) =>
+          e.id === entryID
+            ? {
+                ...e,
+                ...(newClass ? { candidate_class: newClass } : {}),
+                ...(newCategory ? { category: newCategory } : {}),
+              }
+            : e
+        )
+      );
+    } catch (err) {
+      console.error("Failed to update candidate:", err);
+    }
+  };
+
   // Filtered entry list for the translate step: case-insensitive search
-  // across id/source/translation/file/notes plus a status filter ("qa"
-  // matches entries carrying QA notes). Original indices are preserved so
-  // edits map back onto the full translations array.
+  // across id/source/translation/file/notes plus status, candidate class, and category filters.
   const filteredEntries = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return translations
@@ -159,8 +198,30 @@ export default function FarsiForgeDashboard() {
         } else if (statusFilter !== "all" && item.status !== statusFilter) {
           return false;
         }
+
+        if (candidateClassFilter === "read-only") {
+          if (!item.read_only) return false;
+        } else if (candidateClassFilter !== "all") {
+          const itemClass = item.candidate_class || "high-confidence";
+          if (itemClass !== candidateClassFilter) return false;
+        }
+
+        if (categoryFilter !== "all") {
+          const itemCat = item.category || "unclassified";
+          if (itemCat !== categoryFilter) return false;
+        }
+
         if (q) {
-          const hay = [item.id, item.source, item.translation, item.file, item.notes]
+          const hay = [
+            item.id,
+            item.source,
+            item.translation,
+            item.file,
+            item.notes,
+            item.category,
+            item.candidate_class,
+            item.read_only_reason
+          ]
             .filter(Boolean)
             .join("\n")
             .toLowerCase();
@@ -168,12 +229,12 @@ export default function FarsiForgeDashboard() {
         }
         return true;
       });
-  }, [translations, searchQuery, statusFilter]);
+  }, [translations, searchQuery, statusFilter, candidateClassFilter, categoryFilter]);
 
   // Reset page when search or filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, statusFilter]);
+  }, [searchQuery, statusFilter, candidateClassFilter, categoryFilter]);
 
   const qaIssuesCount = useMemo(() => {
     return translations.filter((t) => (t.notes || "").trim() !== "").length;
@@ -714,6 +775,56 @@ export default function FarsiForgeDashboard() {
                       </div>
                     </div>
 
+                    {/* Quality and Classification Filters (Task B) */}
+                    <div className="flex flex-wrap items-center gap-1.5 p-2 rounded-lg bg-zinc-900/60 border border-zinc-800/80 text-xs">
+                      <span className="text-zinc-400 flex items-center gap-1 pl-1 font-medium">
+                        <Filter className="w-3.5 h-3.5 text-indigo-400" />
+                        کیفیت کاندیدا:
+                      </span>
+                      <Badge
+                        onClick={() => setCandidateClassFilter("all")}
+                        variant={candidateClassFilter === "all" ? "default" : "outline"}
+                        className="cursor-pointer text-xs transition-all"
+                      >
+                        همه ({classificationCounts.total})
+                      </Badge>
+                      <Badge
+                        onClick={() => setCandidateClassFilter("high-confidence")}
+                        variant={candidateClassFilter === "high-confidence" ? "default" : "outline"}
+                        className={`cursor-pointer text-xs transition-all ${candidateClassFilter === "high-confidence" ? "bg-emerald-600 text-white" : "text-emerald-400 hover:bg-emerald-500/10 border-emerald-500/30"}`}
+                      >
+                        ✓ با اطمینان بالا ({classificationCounts.high})
+                      </Badge>
+                      <Badge
+                        onClick={() => setCandidateClassFilter("needs-review")}
+                        variant={candidateClassFilter === "needs-review" ? "default" : "outline"}
+                        className={`cursor-pointer text-xs transition-all ${candidateClassFilter === "needs-review" ? "bg-amber-600 text-white" : "text-amber-400 hover:bg-amber-500/10 border-amber-500/30"}`}
+                      >
+                        ? نیازمند بازبینی ({classificationCounts.review})
+                      </Badge>
+                      <Badge
+                        onClick={() => setCandidateClassFilter("raw-heuristic")}
+                        variant={candidateClassFilter === "raw-heuristic" ? "default" : "outline"}
+                        className={`cursor-pointer text-xs transition-all ${candidateClassFilter === "raw-heuristic" ? "bg-sky-600 text-white" : "text-sky-400 hover:bg-sky-500/10 border-sky-500/30"}`}
+                      >
+                        خام / اسکن بایت ({classificationCounts.raw})
+                      </Badge>
+                      <Badge
+                        onClick={() => setCandidateClassFilter("read-only")}
+                        variant={candidateClassFilter === "read-only" ? "default" : "outline"}
+                        className={`cursor-pointer text-xs transition-all ${candidateClassFilter === "read-only" ? "bg-red-900/80 text-white" : "text-rose-400 hover:bg-rose-500/10 border-rose-500/30"}`}
+                      >
+                        🔒 فقط‌خواندنی ({classificationCounts.readOnly})
+                      </Badge>
+                      <Badge
+                        onClick={() => setCandidateClassFilter("technical")}
+                        variant={candidateClassFilter === "technical" ? "default" : "outline"}
+                        className={`cursor-pointer text-xs transition-all ${candidateClassFilter === "technical" ? "bg-zinc-700 text-white" : "text-zinc-400 hover:bg-zinc-700/30 border-zinc-700"}`}
+                      >
+                        فنی / شناسه ({classificationCounts.tech})
+                      </Badge>
+                    </div>
+
                     <div className="flex gap-2 items-center">
                       <Input
                         value={searchQuery}
@@ -721,6 +832,21 @@ export default function FarsiForgeDashboard() {
                         className="bg-zinc-900 border-zinc-700 text-sm text-zinc-200 flex-1"
                         placeholder="جستجو در متن‌ها (متن اصلی، ترجمه، فایل، شناسه، یادداشت)..."
                       />
+                      <select
+                        value={categoryFilter}
+                        onChange={(e) => setCategoryFilter(e.target.value)}
+                        className="bg-zinc-900 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-200 shrink-0"
+                        title="فیلتر بر اساس دسته معنایی"
+                      >
+                        <option value="all">همه دسته‌ها</option>
+                        <option value="dialogue">گفت‌وگو / زیرنویس</option>
+                        <option value="ui">منو و رابط کاربری</option>
+                        <option value="item">آیتم و تجهیزات</option>
+                        <option value="quest">مأموریت و ژورنال</option>
+                        <option value="tutorial">آموزش و راهنما</option>
+                        <option value="system">سیستم و اعلان</option>
+                        <option value="unclassified">عمومی / نامشخص</option>
+                      </select>
                       <select
                         value={statusFilter}
                         onChange={(e) => setStatusFilter(e.target.value)}
@@ -756,13 +882,40 @@ export default function FarsiForgeDashboard() {
                       {visibleEntries.length === 0 && <p className="text-center text-zinc-500 py-10">متنی یافت نشد.</p>}
                       {visibleEntries.map(({ item, idx }) => (
                         <div key={item.id || idx} className="grid grid-cols-2 gap-4 p-3 rounded-lg bg-zinc-950/50 border border-zinc-800/50">
-                          <div className="space-y-1 min-w-0">
-                            <div className="flex items-center justify-between gap-2 text-xs text-zinc-500">
-                              <span className="truncate text-indigo-300" title={item.context || "متن عمومی"}>{item.context || "متن عمومی"}</span>
-                              <span className="truncate font-mono text-left" dir="ltr" title={`${item.file}${item.path ? ` · ${item.path}` : ""}`}>
+                          <div className="space-y-1.5 min-w-0">
+                            <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs text-zinc-500">
+                              <div className="flex items-center gap-1.5 truncate">
+                                <span className="truncate text-indigo-300 font-medium" title={item.context || "متن عمومی"}>{item.context || "متن عمومی"}</span>
+                                {item.category && item.category !== "unclassified" && (
+                                  <span className="px-1.5 py-0.2 rounded text-[10px] bg-purple-500/10 text-purple-300 border border-purple-500/20">
+                                    {item.category === "dialogue" ? "گفت‌وگو" :
+                                     item.category === "ui" ? "رابط کاربری" :
+                                     item.category === "item" ? "آیتم" :
+                                     item.category === "quest" ? "مأموریت" :
+                                     item.category === "tutorial" ? "آموزش" :
+                                     item.category === "system" ? "سیستم" : item.category}
+                                  </span>
+                                )}
+                                {item.confidence ? (
+                                  <span className="text-[10px] text-zinc-400 font-mono" title="امتیاز اطمینان استخراج">
+                                    {(item.confidence * 100).toFixed(0)}%
+                                  </span>
+                                ) : null}
+                              </div>
+                              <span className="truncate font-mono text-left text-[11px]" dir="ltr" title={`${item.file}${item.path ? ` · ${item.path}` : ""}`}>
                                 {item.file}{item.path ? ` · ${item.path}` : ""}
                               </span>
                             </div>
+
+                            {item.read_only && (
+                              <div className="p-1.5 rounded bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300 flex items-center gap-1.5">
+                                <Lock className="w-3 h-3 text-amber-400 shrink-0" />
+                                <span className="truncate" title={item.read_only_reason || "رشته فاقد مسیر نوشتن امن است"}>
+                                  {item.read_only_reason || "این رشته فقط‌خواندنی است و به بازی تزریق نخواهد شد."}
+                                </span>
+                              </div>
+                            )}
+
                             {item.context === "MonoBehaviour" && item.path?.startsWith("raw_") && (
                               <p className="text-xs text-amber-400" title="فیلد منبع از روی فایل باینری قابل‌تأیید نیست؛ تزریق این متن پشتیبانی نمی‌شود.">
                                 اسکن خام؛ محل فیلد تأییدنشده و فعلاً غیرقابل‌تزریق
@@ -782,16 +935,37 @@ export default function FarsiForgeDashboard() {
                             {item.notes && (
                               <div className="text-xs text-amber-400 truncate" dir="ltr" title={item.notes}>⚠ {item.notes}</div>
                             )}
+
+                            {/* User control to promote candidate */}
+                            {item.candidate_class && item.candidate_class !== "high-confidence" && (
+                              <div className="pt-1 flex items-center gap-2 text-xs">
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateCandidate(item.id, "high-confidence")}
+                                  className="text-[11px] text-emerald-400 hover:text-emerald-300 hover:underline flex items-center gap-1"
+                                >
+                                  <Sparkles className="w-3 h-3" />
+                                  تأیید به عنوان کاندیدای معتبر
+                                </button>
+                              </div>
+                            )}
                           </div>
-                          <Input
-                            value={item.translation || ""}
-                            onChange={(e) => {
-                              const v = e.target.value;
-                              setTranslations((prev) => prev.map((t, i) => (i === idx ? { ...t, translation: v } : t)));
-                            }}
-                            className="bg-zinc-900 border-zinc-700 text-right text-sm text-zinc-200"
-                            placeholder="ترجمه..."
-                          />
+
+                          <div className="flex flex-col justify-between">
+                            <Input
+                              value={item.translation || ""}
+                              disabled={item.read_only}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setTranslations((prev) => prev.map((t, i) => (i === idx ? { ...t, translation: v } : t)));
+                              }}
+                              className={`text-right text-sm ${item.read_only ? "bg-zinc-900/30 border-zinc-800 text-zinc-500 cursor-not-allowed" : "bg-zinc-900 border-zinc-700 text-zinc-200"}`}
+                              placeholder={item.read_only ? "غیرقابل ویرایش (فقط‌خواندنی)..." : "ترجمه..."}
+                            />
+                            {item.read_only && (
+                              <p className="text-[10px] text-zinc-500 text-right mt-1">تزریق برای دارایی‌های بدون ساختار مشخص غیرفعال است</p>
+                            )}
+                          </div>
                         </div>
                       ))}
                     </div>

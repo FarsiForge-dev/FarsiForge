@@ -162,6 +162,37 @@ const (
 	StatusSkipped      Status = "skipped"
 )
 
+// CandidateClass constants for precision-first text candidate classification (Task B)
+const (
+	CandidateHighConfidence = "high-confidence" // High confidence translatable text (verified format or clear natural language)
+	CandidateNeedsReview    = "needs-review"    // Short, ambiguous, or mixed strings needing human confirmation
+	CandidateTechnical      = "technical"       // Likely technical identifiers, paths, symbols, code tokens
+	CandidateRawHeuristic   = "raw-heuristic"   // Raw byte / printable string scans without structural AST
+)
+
+// Semantic Category constants
+const (
+	CategoryDialogue     = "dialogue"     // Character speech, subtitles, conversations
+	CategoryUI           = "ui"           // Menus, buttons, HUD, prompts, window titles
+	CategoryItem         = "item"         // Inventory items, weapons, armor, skills, perks
+	CategoryQuest        = "quest"        // Quests, objectives, journal logs, mission descriptions
+	CategoryTutorial     = "tutorial"     // Tips, help screens, guides, tutorials
+	CategorySystem       = "system"       // Engine / system alerts, connection messages
+	CategoryUnclassified = "unclassified" // General natural language without explicit category evidence
+)
+
+// ExtractionStats summarizes text candidate classification and filtering metrics for a project.
+type ExtractionStats struct {
+	TotalParsed         int            `json:"total_parsed"`
+	AcceptedCount       int            `json:"accepted_count"`
+	HighConfidenceCount int            `json:"high_confidence_count"`
+	NeedsReviewCount    int            `json:"needs_review_count"`
+	TechnicalCount      int            `json:"technical_count"`
+	RawHeuristicCount   int            `json:"raw_heuristic_count"`
+	ReadOnlyCount       int            `json:"read_only_count"`
+	FilteredByReason    map[string]int `json:"filtered_by_reason,omitempty"`
+}
+
 // StringEntry represents one translatable string extracted from a game.
 type StringEntry struct {
 	ID          string `json:"id"`
@@ -178,6 +209,14 @@ type StringEntry struct {
 	Status    Status `json:"status"`
 	Notes     string `json:"notes,omitempty"`
 	MaxLength int    `json:"max_length,omitempty"`
+
+	// Semantic & Quality Classification fields (Task B)
+	Category       string  `json:"category,omitempty"`        // dialogue, ui, item, quest, tutorial, system, unclassified
+	CandidateClass string  `json:"candidate_class,omitempty"` // high-confidence, needs-review, technical, raw-heuristic
+	Confidence     float64 `json:"confidence,omitempty"`      // 0.0 - 1.0 confidence score
+	ReadOnly       bool    `json:"read_only,omitempty"`       // true if source cannot be safely written back
+	ReadOnlyReason string  `json:"read_only_reason,omitempty"`// explanation why candidate is read-only
+	SourceType     string  `json:"source_type,omitempty"`     // locres, fmg, gxt2, po, csv, json, raw-binary, etc.
 }
 
 // PersianOptions controls how Persian text is processed for injection.
@@ -234,6 +273,9 @@ type Project struct {
 	// ModifiedFileHashes bind staged output to the exact installed source files
 	// used during the last successful injection.
 	ModifiedFileHashes map[string]string `json:"modified_file_hashes,omitempty"`
+
+	// Extraction & Quality Filtering stats (Task B)
+	ExtractionStats *ExtractionStats `json:"extraction_stats,omitempty"`
 
 	// Internal (not serialized)
 	projectFile string

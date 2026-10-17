@@ -558,5 +558,58 @@ func TestInstallPythonPackage_AllowlistPolicy(t *testing.T) {
 	}
 }
 
+func TestApp_CandidateClassificationWorkflow(t *testing.T) {
+	tempDir := t.TempDir()
+	proj, projectFile, err := core.NewGameProject("ClassificationGame", tempDir, "unreal")
+	if err != nil {
+		t.Fatalf("failed to create project: %v", err)
+	}
+
+	proj.Entries = []core.StringEntry{
+		{ID: "s_0001", Source: "Start Game", File: "UI/Menu.locres", Context: "Main Menu"},
+		{ID: "s_0002", Source: "e06d7363-2b99-4d6f-870a-706f9d2a3c11", File: "Assets/data.bin"},
+		{ID: "s_0003", Source: "A whispered ancient legend...", File: "data.bin", SourceType: "raw-binary"},
+	}
+	if err := proj.Save(projectFile); err != nil {
+		t.Fatalf("failed to save project: %v", err)
+	}
+
+	app := &App{}
+	stats, err := app.ClassifyProjectEntries(tempDir)
+	if err != nil {
+		t.Fatalf("ClassifyProjectEntries failed: %v", err)
+	}
+
+	if stats.TotalParsed != 3 {
+		t.Fatalf("expected 3 parsed, got %d", stats.TotalParsed)
+	}
+	if stats.HighConfidenceCount != 1 {
+		t.Errorf("expected 1 high confidence, got %d", stats.HighConfidenceCount)
+	}
+	if stats.TechnicalCount != 1 {
+		t.Errorf("expected 1 technical, got %d", stats.TechnicalCount)
+	}
+	if stats.RawHeuristicCount != 1 {
+		t.Errorf("expected 1 raw heuristic, got %d", stats.RawHeuristicCount)
+	}
+
+	// Test user manual override / promotion
+	if err := app.UpdateEntryCandidate(tempDir, "s_0003", core.CandidateNeedsReview, core.CategoryDialogue); err != nil {
+		t.Fatalf("UpdateEntryCandidate failed: %v", err)
+	}
+
+	reloaded, err := app.GetProject(tempDir)
+	if err != nil {
+		t.Fatalf("failed to reload project: %v", err)
+	}
+
+	if reloaded.Entries[2].CandidateClass != core.CandidateNeedsReview {
+		t.Errorf("expected candidate class to be updated to needs-review, got %s", reloaded.Entries[2].CandidateClass)
+	}
+	if reloaded.Entries[2].Category != core.CategoryDialogue {
+		t.Errorf("expected category to be updated to dialogue, got %s", reloaded.Entries[2].Category)
+	}
+}
+
 
 

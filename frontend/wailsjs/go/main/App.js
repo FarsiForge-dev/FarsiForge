@@ -6,6 +6,10 @@ export function BuildPatcher(arg1, arg2) {
   return window['go']['main']['App']['BuildPatcher'](arg1, arg2);
 }
 
+export function ClassifyProjectEntries(arg1) {
+  return window['go']['main']['App']['ClassifyProjectEntries'](arg1);
+}
+
 export function DetectEngine(arg1) {
   return window['go']['main']['App']['DetectEngine'](arg1);
 }
@@ -80,6 +84,10 @@ export function SelectOpenFile() {
 
 export function SelectSaveFile(arg1) {
   return window['go']['main']['App']['SelectSaveFile'](arg1);
+}
+
+export function UpdateEntryCandidate(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['UpdateEntryCandidate'](arg1, arg2, arg3, arg4);
 }
 
 export function ValidateProject(arg1) {

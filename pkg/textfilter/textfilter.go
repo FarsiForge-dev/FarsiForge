@@ -30,7 +30,15 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"farsiforge/pkg/core"
 )
+
+func init() {
+	core.QAFunc = func(source, translation string) string {
+		return QANotes(QA(source, translation))
+	}
+}
 
 // Kind classifies a token inside a game string.
 type Kind int

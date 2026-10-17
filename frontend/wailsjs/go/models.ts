@@ -103,6 +103,12 @@ export namespace core {
 	    status: string;
 	    notes?: string;
 	    max_length?: number;
+	    category?: string;
+	    candidate_class?: string;
+	    confidence?: number;
+	    read_only?: boolean;
+	    read_only_reason?: string;
+	    source_type?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new StringEntry(source);
@@ -122,6 +128,38 @@ export namespace core {
 	        this.status = source["status"];
 	        this.notes = source["notes"];
 	        this.max_length = source["max_length"];
+	        this.category = source["category"];
+	        this.candidate_class = source["candidate_class"];
+	        this.confidence = source["confidence"];
+	        this.read_only = source["read_only"];
+	        this.read_only_reason = source["read_only_reason"];
+	        this.source_type = source["source_type"];
+	    }
+	}
+	export class ExtractionStats {
+	    total_parsed: number;
+	    accepted_count: number;
+	    high_confidence_count: number;
+	    needs_review_count: number;
+	    technical_count: number;
+	    raw_heuristic_count: number;
+	    read_only_count: number;
+	    filtered_by_reason?: Record<string, number>;
+
+	    static createFrom(source: any = {}) {
+	        return new ExtractionStats(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.total_parsed = source["total_parsed"];
+	        this.accepted_count = source["accepted_count"];
+	        this.high_confidence_count = source["high_confidence_count"];
+	        this.needs_review_count = source["needs_review_count"];
+	        this.technical_count = source["technical_count"];
+	        this.raw_heuristic_count = source["raw_heuristic_count"];
+	        this.read_only_count = source["read_only_count"];
+	        this.filtered_by_reason = source["filtered_by_reason"];
 	    }
 	}
 	export class ValidationError {
@@ -164,6 +202,7 @@ export namespace core {
 	    extracted_files?: string[];
 	    modified_files?: string[];
 	    modified_file_hashes?: Record<string, string>;
+	    extraction_stats?: ExtractionStats;
 	
 	    static createFrom(source: any = {}) {
 	        return new Project(source);
@@ -188,6 +227,7 @@ export namespace core {
 	        this.extracted_files = source["extracted_files"];
 	        this.modified_files = source["modified_files"];
 	        this.modified_file_hashes = source["modified_file_hashes"];
+	        this.extraction_stats = this.convertValues(source["extraction_stats"], ExtractionStats);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

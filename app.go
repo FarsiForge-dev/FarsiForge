@@ -305,8 +305,12 @@ func (a *App) Extract(info *core.GameInfo) (int, error) {
 		a.emitProgress("extract", "خطا در استخراج متون", 0, err.Error())
 		return 0, fmt.Errorf("extraction failed: %v", err)
 	}
+
+	a.emitProgress("extract", "دسته‌بندی و فیلتر دقیق کاندیداها (Classification)...", 70, "تحلیل ساختار دیالوگ، رابط کاربری و امنیت نوشتن")
+	stats := textfilter.ClassifyProject(proj)
+
 	if previous != nil {
-		a.emitProgress("extract", "تطبیق و ادغام ترجمه‌های پیشین...", 80, "ادغام ترجمه‌ها")
+		a.emitProgress("extract", "تطبیق و ادغام ترجمه‌های پیشین...", 85, "ادغام ترجمه‌ها")
 		proj.MergeTranslations(previous)
 	}
 	a.emitProgress("extract", "ذخیره‌سازی دیتابیس پروژه...", 95, "نوشتن فایل‌های پروژه")
@@ -314,8 +318,54 @@ func (a *App) Extract(info *core.GameInfo) (int, error) {
 		return 0, fmt.Errorf("failed to save project: %v", err)
 	}
 
-	a.emitProgress("extract", "استخراج متون با موفقیت به پایان رسید.", 100, fmt.Sprintf("%d رشته استخراج شد", len(proj.Entries)))
+	a.emitProgress("extract", "استخراج متون با موفقیت به پایان رسید.", 100, fmt.Sprintf("%d رشته (پذیرفته: %d، با اطمینان: %d)", len(proj.Entries), stats.AcceptedCount, stats.HighConfidenceCount))
 	return len(proj.Entries), nil
+}
+
+// ClassifyProjectEntries runs the precision candidate classification and filtering pipeline on the loaded project.
+func (a *App) ClassifyProjectEntries(gameRoot string) (*core.ExtractionStats, error) {
+	proj, err := core.LoadGameProject(gameRoot)
+	if err != nil {
+		return nil, fmt.Errorf("load project: %w", err)
+	}
+	stats := textfilter.ClassifyProject(proj)
+	projectPath, err := core.ProjectFilePath(gameRoot)
+	if err != nil {
+		return &stats, err
+	}
+	if err := proj.Save(projectPath); err != nil {
+		return &stats, fmt.Errorf("save project after classification: %w", err)
+	}
+	return &stats, nil
+}
+
+// UpdateEntryCandidate updates the candidate class and/or category of an entry.
+func (a *App) UpdateEntryCandidate(gameRoot, entryID, candidateClass, category string) error {
+	proj, err := core.LoadGameProject(gameRoot)
+	if err != nil {
+		return fmt.Errorf("load project: %w", err)
+	}
+	found := false
+	for i := range proj.Entries {
+		if proj.Entries[i].ID == entryID {
+			if candidateClass != "" {
+				proj.Entries[i].CandidateClass = candidateClass
+			}
+			if category != "" {
+				proj.Entries[i].Category = category
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("entry not found: %s", entryID)
+	}
+	projectPath, err := core.ProjectFilePath(gameRoot)
+	if err != nil {
+		return err
+	}
+	return proj.Save(projectPath)
 }
 
 // Inject runs the injection pipeline.

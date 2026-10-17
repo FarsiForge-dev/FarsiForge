@@ -28,6 +28,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Rich In-App Diagnostics Toast**: Replaced browser `alert()` popups with non-blocking error banners featuring actionable error explanations and a "کپی گزارش کامل خطا (Diagnostics)" button for instant clipboard export.
 - **Interactive Settings Modal**: Added full Settings configuration dialog in workbench header wired to `GetSettings` and `SaveSettings`, persisting `tools_dir`, `output_dir`, and default author.
 - **Pip Package Installation Allowlist**: Restriced `InstallPythonPackage` in `app.go` strictly to pre-approved FarsiForge dependencies (`UnityPy`, `Pillow`, `brotli`), rejecting unapproved packages before accessing the environment.
+- **Precision-First Text Candidate Classification (Task B)**: Built a comprehensive extraction classification pipeline in `pkg/textfilter/classifier.go` combining structural evidence (localization tables, Dialogue/UI/Item metadata), syntax checks (placeholders, markup tags, brackets), natural-language heuristics, and write-back safety contracts.
+- **Semantic Categories & Quality Classes**: Defined core candidate classes (`high-confidence`, `needs-review`, `technical`, `raw-heuristic`) and semantic categories (`dialogue`, `ui`, `item`, `quest`, `tutorial`, `system`, `unclassified`) with 0.0-1.0 confidence scoring.
+- **Container Write-Back Protection**: Enforced strict `ReadOnly` marking with descriptive `ReadOnlyReason` on archive-resident strings (Unreal `.pak`/`.utoc` and FromSoftware `Data0.bhd`) and unparsed binary byte scans.
+- **Labelled Golden Fixture Benchmark**: Added `pkg/textfilter/testdata/golden_corpus.json` and `classifier_test.go` regression test harness achieving 100% precision and 100% recall across engines and noise scenarios.
+- **Extraction Statistics Reporting**: Added `ExtractionStats` attached to `core.Project` and populated during extraction, tracking accepted, reviewable, technical, and read-only candidate metrics.
+- **Workbench Candidate Quality & Category UI**: Added quality filter chips (`همه`, `با اطمینان بالا`, `نیازمند بازبینی`, `خام`, `فقط‌خواندنی`, `فنی`), semantic category dropdown selector, row category badges, read-only lock notices, and interactive promotion controls.
 - **Game Launch Safety**: `LaunchGame` in `app.go` now validates executable paths against traversal, root boundary escape, directory execution, and empty parameters.
 
 ### Changed

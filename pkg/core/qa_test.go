@@ -1,16 +1,19 @@
-package core
+package core_test
 
 import (
 	"strings"
 	"testing"
+
+	"farsiforge/pkg/core"
+	_ "farsiforge/pkg/textfilter"
 )
 
 // newTestProject returns a project with a few entries for QA-notes tests.
-func newTestProject() *Project {
-	p := NewProject("test", "/tmp/game", "unreal")
-	p.AddEntry(StringEntry{ID: "s_0001", Source: "You found {0} items", File: "Game.uexp"})
-	p.AddEntry(StringEntry{ID: "s_0002", Source: "Press <cf>fire</cf> to attack", File: "Game.uexp"})
-	p.AddEntry(StringEntry{ID: "s_0003", Source: "Hello, world!", File: "Game.uexp"})
+func newTestProject() *core.Project {
+	p := core.NewProject("test", "/tmp/game", "unreal")
+	p.AddEntry(core.StringEntry{ID: "s_0001", Source: "You found {0} items", File: "Game.uexp"})
+	p.AddEntry(core.StringEntry{ID: "s_0002", Source: "Press <cf>fire</cf> to attack", File: "Game.uexp"})
+	p.AddEntry(core.StringEntry{ID: "s_0003", Source: "Hello, world!", File: "Game.uexp"})
 	return p
 }
 
@@ -18,7 +21,7 @@ func TestSetTranslationQANotes(t *testing.T) {
 	p := newTestProject()
 
 	// Missing placeholder → MISMATCH_PLACEHOLDERS note.
-	if err := p.SetTranslation("s_0001", "شما آیتم پیدا کردید", StatusTranslated); err != nil {
+	if err := p.SetTranslation("s_0001", "شما آیتم پیدا کردید", core.StatusTranslated); err != nil {
 		t.Fatalf("SetTranslation: %v", err)
 	}
 	if got := p.Entries[0].Notes; !strings.Contains(got, "MISMATCH_PLACEHOLDERS") {
@@ -26,7 +29,7 @@ func TestSetTranslationQANotes(t *testing.T) {
 	}
 
 	// Correct translation → no notes.
-	if err := p.SetTranslation("s_0001", "شما {0} آیتم پیدا کردید", StatusTranslated); err != nil {
+	if err := p.SetTranslation("s_0001", "شما {0} آیتم پیدا کردید", core.StatusTranslated); err != nil {
 		t.Fatalf("SetTranslation: %v", err)
 	}
 	if got := p.Entries[0].Notes; got != "" {
@@ -34,7 +37,7 @@ func TestSetTranslationQANotes(t *testing.T) {
 	}
 
 	// Tag mismatch → MISMATCH_TAGS note.
-	if err := p.SetTranslation("s_0002", "برای حمله <cf>شلیک</x> را بزنید", StatusTranslated); err != nil {
+	if err := p.SetTranslation("s_0002", "برای حمله <cf>شلیک</x> را بزنید", core.StatusTranslated); err != nil {
 		t.Fatalf("SetTranslation: %v", err)
 	}
 	if got := p.Entries[1].Notes; !strings.Contains(got, "MISMATCH_TAGS") {
@@ -42,7 +45,7 @@ func TestSetTranslationQANotes(t *testing.T) {
 	}
 
 	// Empty translation → EMPTY_TRANSLATION note (stale notes are replaced).
-	if err := p.SetTranslation("s_0002", "", StatusUntranslated); err != nil {
+	if err := p.SetTranslation("s_0002", "", core.StatusUntranslated); err != nil {
 		t.Fatalf("SetTranslation: %v", err)
 	}
 	if got := p.Entries[1].Notes; !strings.Contains(got, "EMPTY_TRANSLATION") {
@@ -50,7 +53,7 @@ func TestSetTranslationQANotes(t *testing.T) {
 	}
 
 	// Unknown ID → error.
-	if err := p.SetTranslation("s_9999", "x", StatusTranslated); err == nil {
+	if err := p.SetTranslation("s_9999", "x", core.StatusTranslated); err == nil {
 		t.Error("expected error for unknown ID")
 	}
 }

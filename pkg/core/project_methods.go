@@ -7,9 +7,18 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"farsiforge/pkg/textfilter"
 )
+
+// QAFunc is an optional callback to compute translation QA notes comparing source and translation.
+// It is registered by pkg/textfilter without creating an import cycle.
+var QAFunc func(source, translation string) string
+
+func computeQANotes(source, translation string) string {
+	if QAFunc != nil {
+		return QAFunc(source, translation)
+	}
+	return ""
+}
 
 // NewProject creates a new project.
 func NewProject(name, gameRoot, engine string) *Project {
@@ -136,7 +145,7 @@ func (p *Project) SetTranslation(id, translation string, status Status) error {
 		if p.Entries[i].ID == id {
 			p.Entries[i].Translation = translation
 			p.Entries[i].Status = status
-			p.Entries[i].Notes = textfilter.QANotes(textfilter.QA(p.Entries[i].Source, translation))
+			p.Entries[i].Notes = computeQANotes(p.Entries[i].Source, translation)
 			p.UpdatedAt = time.Now()
 			return nil
 		}
@@ -165,7 +174,7 @@ func (p *Project) ImportTranslations(translations map[string]string) int {
 			if p.Entries[i].Status == StatusUntranslated {
 				p.Entries[i].Status = StatusTranslated
 			}
-			p.Entries[i].Notes = textfilter.QANotes(textfilter.QA(p.Entries[i].Source, tr))
+			p.Entries[i].Notes = computeQANotes(p.Entries[i].Source, tr)
 			count++
 		}
 	}
@@ -191,8 +200,14 @@ func (p *Project) MergeTranslations(previous *Project) int {
 		}
 		p.Entries[i].Translation = old.Translation
 		p.Entries[i].Status = old.Status
+		if old.CandidateClass != "" {
+			p.Entries[i].CandidateClass = old.CandidateClass
+		}
+		if old.Category != "" {
+			p.Entries[i].Category = old.Category
+		}
 		if p.Entries[i].Translation != "" {
-			p.Entries[i].Notes = textfilter.QANotes(textfilter.QA(p.Entries[i].Source, old.Translation))
+			p.Entries[i].Notes = computeQANotes(p.Entries[i].Source, old.Translation)
 		}
 		merged++
 	}

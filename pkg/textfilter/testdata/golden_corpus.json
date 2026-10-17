@@ -1,0 +1,264 @@
+[
+  {
+    "id": "gold_001",
+    "source": "Greetings, traveler! What brings you to our humble tavern tonight?",
+    "file": "Dialogue/TavernKeeper.locres",
+    "context": "Unreal Dialogue",
+    "speaker": "Barkeep",
+    "engine": "unreal",
+    "expected_class": "high-confidence",
+    "expected_category": "dialogue",
+    "is_translatable": true
+  },
+  {
+    "id": "gold_002",
+    "source": "I cannot allow you to pass without the royal seal.",
+    "file": "Msg/Guard_Castle.fmg",
+    "context": "FromSoftware FMG",
+    "speaker": "Castle Guard",
+    "engine": "fromsoftware",
+    "expected_class": "high-confidence",
+    "expected_category": "dialogue",
+    "is_translatable": true
+  },
+  {
+    "id": "gold_003",
+    "source": "Start Game",
+    "file": "UI/MainMenu.locres",
+    "context": "Unreal UI Button",
+    "path": "MainMenu/btn_start",
+    "engine": "unreal",
+    "expected_class": "high-confidence",
+    "expected_category": "ui",
+    "is_translatable": true
+  },
+  {
+    "id": "gold_004",
+    "source": "Options",
+    "file": "ui/settings.translation",
+    "context": "Godot Settings Menu",
+    "path": "Settings/Tabs/Options",
+    "engine": "godot",
+    "expected_class": "high-confidence",
+    "expected_category": "ui",
+    "is_translatable": true
+  },
+  {
+    "id": "gold_005",
+    "source": "Yes",
+    "file": "ui/dialogs.csv",
+    "context": "Confirm Prompt",
+    "path": "ConfirmDialog/btn_yes",
+    "engine": "generic",
+    "expected_class": "high-confidence",
+    "expected_category": "ui",
+    "is_translatable": true
+  },
+  {
+    "id": "gold_006",
+    "source": "No",
+    "file": "ui/dialogs.csv",
+    "context": "Confirm Prompt",
+    "path": "ConfirmDialog/btn_no",
+    "engine": "generic",
+    "expected_class": "high-confidence",
+    "expected_category": "ui",
+    "is_translatable": true
+  },
+  {
+    "id": "gold_007",
+    "source": "Quit to Desktop",
+    "file": "UI/Menu.locres",
+    "context": "Main Menu Exit",
+    "path": "Menu/Quit",
+    "engine": "unreal",
+    "expected_class": "high-confidence",
+    "expected_category": "ui",
+    "is_translatable": true
+  },
+  {
+    "id": "gold_008",
+    "source": "Iron Broadsword of the Phoenix",
+    "file": "Items/Weapons.locres",
+    "context": "Weapon Name",
+    "path": "Items/Weapons/Sword_01",
+    "engine": "unreal",
+    "expected_class": "high-confidence",
+    "expected_category": "item",
+    "is_translatable": true
+  },
+  {
+    "id": "gold_009",
+    "source": "Defeat 5 Forest Wolves and return to the elder.",
+    "file": "Quests/Act1_Quests.locres",
+    "context": "Quest Objective",
+    "path": "Quests/Wolves/Objective1",
+    "engine": "unreal",
+    "expected_class": "high-confidence",
+    "expected_category": "quest",
+    "is_translatable": true
+  },
+  {
+    "id": "gold_010",
+    "source": "Press [Shift] to sprint while moving forward.",
+    "file": "Tutorial/MovementHelp.locres",
+    "context": "Tutorial Tip",
+    "path": "Tutorial/SprintTip",
+    "engine": "unreal",
+    "expected_class": "high-confidence",
+    "expected_category": "tutorial",
+    "is_translatable": true
+  },
+  {
+    "id": "gold_011",
+    "source": "e06d7363-2b99-4d6f-870a-706f9d2a3c11",
+    "file": "assets/binary.dat",
+    "context": "Raw GUID",
+    "engine": "unity",
+    "expected_class": "technical",
+    "expected_category": "system",
+    "is_translatable": false
+  },
+  {
+    "id": "gold_012",
+    "source": "d41d8cd98f00b204e9800998ecf8427e",
+    "file": "assets/hashes.bin",
+    "context": "MD5 Hash",
+    "engine": "generic",
+    "expected_class": "technical",
+    "expected_category": "system",
+    "is_translatable": false
+  },
+  {
+    "id": "gold_013",
+    "source": "GameManager, Assembly-CSharp",
+    "file": "assets/monobehaviour.assets",
+    "context": "Unity Assembly Ref",
+    "engine": "unity",
+    "expected_class": "technical",
+    "expected_category": "system",
+    "is_translatable": false
+  },
+  {
+    "id": "gold_014",
+    "source": "bShowSubtitles",
+    "file": "Engine/Settings.uexp",
+    "context": "Config Property",
+    "engine": "unreal",
+    "expected_class": "technical",
+    "expected_category": "system",
+    "is_translatable": false
+  },
+  {
+    "id": "gold_015",
+    "source": "m_LocalScale",
+    "file": "sharedassets0.assets",
+    "context": "Transform Field",
+    "engine": "unity",
+    "expected_class": "technical",
+    "expected_category": "system",
+    "is_translatable": false
+  },
+  {
+    "id": "gold_016",
+    "source": "dialogue_node_54",
+    "file": "scripts/dialogue_tree.bin",
+    "context": "Script Identifier",
+    "engine": "godot",
+    "expected_class": "technical",
+    "expected_category": "system",
+    "is_translatable": false
+  },
+  {
+    "id": "gold_017",
+    "source": "Content/Localization/Game.locres",
+    "file": "manifest.json",
+    "context": "File Path",
+    "engine": "unreal",
+    "expected_class": "technical",
+    "expected_category": "system",
+    "is_translatable": false
+  },
+  {
+    "id": "gold_018",
+    "source": "[DEBUG] Server connection established on port 8080",
+    "file": "logs/engine.log",
+    "context": "Debug Trace",
+    "engine": "generic",
+    "expected_class": "technical",
+    "expected_category": "system",
+    "is_translatable": false
+  },
+  {
+    "id": "gold_019",
+    "source": "آیا از خروج از بازی اطمینان دارید؟",
+    "file": "UI/PersianConfirm.locres",
+    "context": "Persian Localization",
+    "engine": "unreal",
+    "expected_class": "high-confidence",
+    "expected_category": "ui",
+    "is_translatable": true
+  },
+  {
+    "id": "gold_020",
+    "source": "ذخیره بازی با موفقیت انجام شد.",
+    "file": "SaveGame/Messages.json",
+    "context": "Persian Save Notice",
+    "engine": "generic",
+    "expected_class": "high-confidence",
+    "expected_category": "system",
+    "is_translatable": true
+  },
+  {
+    "id": "gold_021",
+    "source": "A strange symbol was inscribed upon the ancient monolith.",
+    "file": "data.uexp",
+    "context": "Raw Byte Scan",
+    "engine": "unreal",
+    "source_type": "raw-binary",
+    "expected_class": "raw-heuristic",
+    "expected_category": "unclassified",
+    "is_translatable": true
+  },
+  {
+    "id": "gold_022",
+    "source": "{PW_Axe}",
+    "file": "game.locres",
+    "context": "Pure Placeholder",
+    "engine": "unreal",
+    "expected_class": "technical",
+    "expected_category": "system",
+    "is_translatable": false
+  },
+  {
+    "id": "gold_023",
+    "source": "HP",
+    "file": "HUD/PlayerStatus.locres",
+    "context": "Player HUD Stat",
+    "path": "HUD/HealthLabel",
+    "engine": "unreal",
+    "expected_class": "high-confidence",
+    "expected_category": "ui",
+    "is_translatable": true
+  },
+  {
+    "id": "gold_024",
+    "source": "501 Usage: cat [folder]/[file]",
+    "file": "Terminal/Console.locres",
+    "context": "In-Game Terminal Command",
+    "engine": "unreal",
+    "expected_class": "high-confidence",
+    "expected_category": "system",
+    "is_translatable": true
+  },
+  {
+    "id": "gold_025",
+    "source": "Item_1 Item_2 Item_3",
+    "file": "debug.dump",
+    "context": "Identifier Word Series",
+    "engine": "generic",
+    "expected_class": "technical",
+    "expected_category": "system",
+    "is_translatable": false
+  }
+]

@@ -6,6 +6,8 @@ import {exchange} from '../models';
 
 export function BuildPatcher(arg1:string,arg2:string):Promise<main.BuildPatcherResult>;
 
+export function ClassifyProjectEntries(arg1:string):Promise<core.ExtractionStats>;
+
 export function DetectEngine(arg1:string):Promise<core.GameInfo>;
 
 export function ExportTranslations(arg1:string,arg2:string):Promise<void>;
@@ -43,5 +45,7 @@ export function SelectDirectory():Promise<string>;
 export function SelectOpenFile():Promise<string>;
 
 export function SelectSaveFile(arg1:string):Promise<string>;
+
+export function UpdateEntryCandidate(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
 
 export function ValidateProject(arg1:string):Promise<Array<core.ValidationError>>;
