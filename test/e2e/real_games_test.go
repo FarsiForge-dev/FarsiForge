@@ -8,6 +8,7 @@ import (
 	"farsiforge/pkg/assetbrowser"
 	"farsiforge/pkg/detection"
 	"farsiforge/pkg/fonts"
+	"farsiforge/pkg/tools"
 )
 
 func TestRealGames_SanityAudit(t *testing.T) {
@@ -17,6 +18,7 @@ func TestRealGames_SanityAudit(t *testing.T) {
 	}
 
 	reg := detection.DefaultRegistry()
+	toolReg, _ := tools.NewRegistry("")
 
 	games := []struct {
 		folder         string
@@ -27,6 +29,9 @@ func TestRealGames_SanityAudit(t *testing.T) {
 		{"Factorio", "factorio"},
 		{"Project.Zomboid", "zomboid"},
 		{"Raft", "unity"},
+		{"Orc Massage", "unity"},
+		{"MOLDRISE.v1.0.5", "godot"},
+		{"Hacker Simulator", "unreal"},
 		{"CnC Zero Hour - R2P Edition", "sage"},
 		{"Command and Conquer Red Alert 3", "sage"},
 	}
@@ -61,6 +66,11 @@ func TestRealGames_SanityAudit(t *testing.T) {
 			}
 			t.Logf("[%s] Font Scan: %d fonts found (%d direct, %d resources, %d atlases, %d Persian-ready)",
 				g.folder, fontRep.TotalFontsFound, fontRep.DirectFontFiles, fontRep.EngineResources, fontRep.BitmapAtlases, fontRep.PersianReadyCount)
+
+			// 4. Operation Prerequisites Check
+			opCheck := tools.CheckOperationRequirements(toolReg, res.Engine, "extract")
+			t.Logf("[%s] Operation Check (extract): Allowed=%v, Blockers=%v, Warnings=%v",
+				g.folder, opCheck.Allowed, opCheck.Blockers, opCheck.Warnings)
 		})
 	}
 }

@@ -242,6 +242,16 @@ jobs:
             }
           }
 
+      - name: Generate Release Manifest & SBOM
+        shell: pwsh
+        run: |
+          go run ./scripts/generate_sbom.go -bin build/bin -out build/bin
+
+      - name: Run Clean-Machine Smoke Test
+        shell: pwsh
+        run: |
+          go test -v ./test/smoke/... -count=1
+
       - name: Package Portable Distribution Bundle
         shell: pwsh
         run: |
@@ -257,6 +267,8 @@ jobs:
           path: |
             build/bin/FarsiForge.exe
             build/bin/farsiforge-cli.exe
+            build/bin/sbom.json
+            build/bin/RELEASE_MANIFEST.md
             build/FarsiForge-windows-amd64.zip
           retention-days: 14
 
@@ -283,5 +295,7 @@ jobs:
           files: |
             dist/FarsiForge.exe
             dist/farsiforge-cli.exe
+            dist/sbom.json
+            dist/RELEASE_MANIFEST.md
             dist/FarsiForge-windows-amd64.zip
           generate_release_notes: true

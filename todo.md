@@ -71,8 +71,8 @@ This roadmap is based on a source-level review of the application, Wails/Next.js
 - [x] Separate build/test permissions from publishing permissions; grant `contents: write` only to the release job.
 - [x] Pin the companion repository to a tagged version or commit SHA instead of cloning its moving default branch during release builds.
 - [x] Verify SHA-256 checksums and, where available, signatures for downloaded tools/assets (`repak`, `retoc`, GDRE, font artifacts, and other binaries); fail the release when verification fails.
-- [ ] Generate a release manifest/SBOM with tool versions, source revisions, hashes, licenses, and the exact Go/Node/runtime versions used. Add dependency and secret scanning.
-- [ ] Run a clean-machine smoke test on the produced ZIP: launch the desktop app, inspect tool discovery, extract a fixture, stage a patch, apply it, and uninstall it.
+- [x] Generate a release manifest/SBOM with tool versions, source revisions, hashes, licenses, and the exact Go/Node/runtime versions used. Add dependency and secret scanning.
+- [x] Run a clean-machine smoke test on the produced ZIP: launch the desktop app, inspect tool discovery, extract a fixture, stage a patch, apply it, and uninstall it.
 
 **Acceptance criteria:** the same tagged source and pinned dependencies produce traceable artifacts; a failed test, missing dependency, checksum mismatch, or broken packaged path prevents publication.
 
@@ -131,11 +131,11 @@ This roadmap is based on a source-level review of the application, Wails/Next.js
 
 ### 12. Improve tool setup, diagnostics, and external process handling
 
-- [ ] Build a per-operation requirements check instead of checking only a single `Capabilities.ToolName`. Account for Unreal `repak`/`retoc`, UnityPy, FFTools, GDRE, RAGE key-material requirements, and FromSoftware's Oodle dependency as applicable.
-- [ ] Show detected path, version, architecture, license/source, and a test/run result for each required tool. Add refresh and a downloadable/copyable diagnostic report.
+- [x] Build a per-operation requirements check instead of checking only a single `Capabilities.ToolName`. Account for Unreal `repak`/`retoc`, UnityPy, FFTools, GDRE, RAGE key-material requirements, and FromSoftware's Oodle dependency as applicable.
+- [x] Show detected path, version, architecture, license/source, and a test/run result for each required tool. Add refresh and a downloadable/copyable diagnostic report.
 - [x] Replace arbitrary `pip install <name>` behavior with a documented, pinned requirements set in an isolated environment; avoid silently installing arbitrary packages from UI input.
-- [ ] Bound captured subprocess output, consistently report exit code/stdout/stderr, preserve cancellation, and use explicit timeouts for tool discovery and operations that may hang.
-- [ ] Add fixture-based tests for missing, corrupt, incompatible, wrong-architecture, and non-executable helper tools.
+- [x] Bound captured subprocess output, consistently report exit code/stdout/stderr, preserve cancellation, and use explicit timeouts for tool discovery and operations that may hang.
+- [x] Add fixture-based tests for missing, corrupt, incompatible, wrong-architecture, and non-executable helper tools.
 
 **Acceptance criteria:** prerequisites are detected before work begins and failures identify the missing/incompatible dependency without forcing users to reverse-engineer logs.
 

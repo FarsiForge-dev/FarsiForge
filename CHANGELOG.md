@@ -45,7 +45,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Multi-Engine Browse Providers**: Built specialized providers for Unreal Engine (`.pak`, `.utoc`, `.locres`, `.uexp`), FromSoftware (`Data0.bhd`, `.msgbnd.dcx`, `.fmg`), Godot (`.pck`, `.tres`, `.translation`), Unity (`.assets`, `.bundle`, `.resS`, text assets), and generic structured files.
 - **Write-Back Safety Contracts in Browser**: Every discovered asset explicitly reports its parsing status (`parsed`, `opaque_container`, `raw_heuristic`, `unsupported`) and editability contracts (`can_extract`, `can_inject`, `read_only`, and `read_only_reason`).
 - **Interactive Asset Browser Modal & Tree Navigation**: Added interactive split-view modal in `frontend/src/app/page.tsx` with folder/container tree expand/collapse, quick filters (`all`, `containers`, `extractable`, `readonly`), real-time search, and a metadata/provenance detail inspector.
-- **Real-Game Verification Suite**: Added `test/e2e/real_games_test.go` and successfully validated engine detection, asset browsing, and font inventory across real games in `D:\games` (`ELDEN RING`, `Sekiro`, `Factorio`, `Project.Zomboid`, `Raft`, `C&C Generals Zero Hour`, `Red Alert 3`) with 100% pass and zero file mutations.
+- **Fine-Grained Tool Diagnostics & Per-Operation Verification (Task 12)**:
+  - Bounded subprocess output buffer (`RunSilentBounded`) with `DefaultMaxOutputBytes = 2MB` to protect against memory exhaustion from runaway subprocesses.
+  - Native PE header architecture inspection via `debug/pe` (`DetectPEArchitecture`) accurately identifying `x86_64`, `x86`, and `arm64` binary targets and classifying corrupt/damaged executables.
+  - Per-operation prerequisite checker (`CheckOperationRequirements`) determining whether tools needed for `extract`, `inject`, `rebuild_archive`, or `build_patch` are present, compatible, and healthy for each engine (Unreal `repak`/`retoc`, Unity `python`/`unitypy`, Godot `fftools`/`gdre_tools`, FromSoftware `fftools`/`oo2core`, RAGE `magic.dat`, and standalone `FarsiForgePatcher.exe`).
+  - Diagnostic report generator (`GenerateDiagnosticReport`) producing structured metadata and copyable/downloadable Markdown reports.
+  - Exposed via `App` API: `GetDetailedToolDiagnostics`, `CheckOperationPrerequisites`, and `RefreshTools`.
+- **Release Manifest & SBOM Generator (Task 6)**:
+  - Built `pkg/sbom/sbom.go` and standalone CLI `scripts/generate_sbom.go` capturing tool versions, licenses, source revisions, SHA-256 hashes, Go/Node versions, and target binary digests.
+  - Emits both structured `sbom.json` and human-readable `RELEASE_MANIFEST.md`.
+  - Incorporated into `.github/workflows/release.yml` with artifact publishing.
+- **Clean-Machine Smoke Test (Task 6)**:
+  - Added `test/smoke/smoke_test.go` verifying clean tool discovery, project setup, staged translation, FFP1 patch building, transactional apply, and byte-for-byte uninstall rollback with 100% pass.
+- **Expanded Real-Games Validation Suite (`D:\games`)**:
+  - Expanded `test/e2e/real_games_test.go` to test 10 real game installations in `D:\games` (`ELDEN RING`, `Sekiro`, `Factorio`, `Project.Zomboid`, `Raft`, `Orc Massage` [Unity], `MOLDRISE` [Godot], `Hacker Simulator` [Unreal], `C&C Generals Zero Hour`, `Command and Conquer Red Alert 3`).
+  - Tested engine detection, asset browser scans, font scans, and operation requirement validation with 100% pass and zero game file mutations.
 
 ### Changed
 - **FromSoftware Staging Contract**: Routed all FromSoftware injector output to `Project.WorkingDir/out/` instead of mutating files inside `GameRoot`. Installed game files remain strictly read-only.

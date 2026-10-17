@@ -198,6 +198,38 @@ func (a *App) GetToolStatus() *ToolStatus {
 	return status
 }
 
+// GetDetailedToolDiagnostics returns a rich diagnostic report covering all helper
+// tools, architecture, version probes, and licenses.
+func (a *App) GetDetailedToolDiagnostics() *tools.DiagnosticReport {
+	if a.toolReg == nil {
+		a.toolReg, _ = tools.NewRegistry("")
+	}
+	return tools.GenerateDiagnosticReport(a.toolReg)
+}
+
+// CheckOperationPrerequisites verifies whether all required external tools for
+// an engine and operation (extract, inject, rebuild_archive, build_patch) are available.
+func (a *App) CheckOperationPrerequisites(engine, operation string) tools.OperationCheckResult {
+	if a.toolReg == nil {
+		a.toolReg, _ = tools.NewRegistry("")
+	}
+	return tools.CheckOperationRequirements(a.toolReg, engine, operation)
+}
+
+// RefreshTools rescans the tools directory and updates the active tool registry.
+func (a *App) RefreshTools() (*tools.DiagnosticReport, error) {
+	toolsDir := ""
+	if a.toolReg != nil {
+		toolsDir = a.toolReg.RootDir
+	}
+	newReg, err := tools.NewRegistry(toolsDir)
+	if err != nil {
+		return nil, fmt.Errorf("refresh tools failed: %w", err)
+	}
+	a.toolReg = newReg
+	return tools.GenerateDiagnosticReport(a.toolReg), nil
+}
+
 // GetEngineCapabilities returns the unified support matrix of all game engines.
 func (a *App) GetEngineCapabilities() []core.EngineCapability {
 	return core.AllEngineCapabilities()
