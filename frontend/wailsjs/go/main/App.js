@@ -70,6 +70,10 @@ export function SaveTranslations(arg1, arg2) {
   return window['go']['main']['App']['SaveTranslations'](arg1, arg2);
 }
 
+export function ScanGameFonts(arg1) {
+  return window['go']['main']['App']['ScanGameFonts'](arg1);
+}
+
 export function SearchEntries(arg1, arg2, arg3) {
   return window['go']['main']['App']['SearchEntries'](arg1, arg2, arg3);
 }
@@ -84,6 +88,10 @@ export function SelectOpenFile() {
 
 export function SelectSaveFile(arg1) {
   return window['go']['main']['App']['SelectSaveFile'](arg1);
+}
+
+export function StageFontReplacement(arg1, arg2, arg3) {
+  return window['go']['main']['App']['StageFontReplacement'](arg1, arg2, arg3);
 }
 
 export function UpdateEntryCandidate(arg1, arg2, arg3, arg4) {

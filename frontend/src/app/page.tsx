@@ -29,7 +29,8 @@ import {
   Info,
   Lock,
   Filter,
-  Sparkles
+  Sparkles,
+  Type
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -56,10 +57,12 @@ import {
   GetSettings,
   SaveSettings,
   UpdateEntryCandidate,
-  ClassifyProjectEntries
+  ClassifyProjectEntries,
+  ScanGameFonts,
+  StageFontReplacement
 } from "../../wailsjs/go/main/App";
 import { EventsOn } from "../../wailsjs/runtime/runtime";
-import { core, main } from "../../wailsjs/go/models";
+import { core, main, fonts } from "../../wailsjs/go/models";
 
 type Step = "detect" | "extract" | "translate" | "inject" | "patch" | "success";
 
@@ -89,6 +92,10 @@ export default function FarsiForgeDashboard() {
   const [copiedDiag, setCopiedDiag] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [settingsData, setSettingsData] = useState<any>(null);
+  const [fontReport, setFontReport] = useState<fonts.FontInventoryReport | null>(null);
+  const [isScanningFonts, setIsScanningFonts] = useState(false);
+  const [stagedFonts, setStagedFonts] = useState<Record<string, fonts.FontReplacementResult>>({});
+  const [showFontModal, setShowFontModal] = useState(false);
   const [persianOpts, setPersianOpts] = useState({
     rtl: true,
     shaping: true,
@@ -298,6 +305,62 @@ export default function FarsiForgeDashboard() {
         type: "error",
         title: "خطا در ذخیره تنظیمات",
         message: String(err),
+      });
+    }
+  };
+
+  const handleScanFonts = async () => {
+    const targetDir = gameInfo?.game_root || dirPath;
+    if (!targetDir) {
+      setNotification({
+        type: "warning",
+        title: "مسیر بازی مشخص نیست",
+        message: "لطفاً ابتدا مسیر بازی را انتخاب کنید تا فونت‌ها بررسی شوند.",
+      });
+      return;
+    }
+    setIsScanningFonts(true);
+    try {
+      const rep = await ScanGameFonts(targetDir);
+      setFontReport(rep);
+      setShowFontModal(true);
+      setNotification({
+        type: "success",
+        title: "تحلیل فونت‌های بازی کامل شد",
+        message: `تعداد ${rep.total_fonts_found} فونت شناسایی شد (${rep.persian_ready_count} مورد دارای پشتیبانی کامل از حروف فارسی).`,
+      });
+    } catch (e) {
+      console.error(e);
+      setNotification({
+        type: "error",
+        title: "خطا در بررسی فونت‌ها",
+        message: String(e),
+      });
+    } finally {
+      setIsScanningFonts(false);
+    }
+  };
+
+  const handleStageFontReplacement = async (targetRelPath: string) => {
+    const targetDir = gameInfo?.game_root || dirPath;
+    if (!targetDir) return;
+    try {
+      const customFontPath = await SelectOpenFile();
+      if (!customFontPath) return;
+      const res = await StageFontReplacement(targetDir, targetRelPath, customFontPath);
+      setStagedFonts((prev) => ({ ...prev, [targetRelPath]: res }));
+      setNotification({
+        type: "success",
+        title: "جایگزینی فونت با موفقیت آماده‌سازی شد (Staged)",
+        message: `فونت "${res.font_family || "Custom"}" در مسیر ایمن WorkingDir/out استیج شد. فایل‌های نصب بازی بدون تغییر مانده‌اند و این تغییر در پچ نهایی اعمال خواهد شد.`,
+        diagnostic: `Original SHA256: ${res.source_sha256}\nTarget SHA256: ${res.target_sha256}\nTarget Relative: ${res.target_rel_path}\nStaged Location: ${res.staged_path}`,
+      });
+    } catch (e) {
+      console.error(e);
+      setNotification({
+        type: "error",
+        title: "خطا در جایگزینی فونت",
+        message: String(e),
       });
     }
   };
@@ -611,6 +674,69 @@ export default function FarsiForgeDashboard() {
               })}
             </CardContent>
           </Card>
+
+          {/* Font Inventory & Diagnostics Card */}
+          <Card className="bg-zinc-950/40 backdrop-blur-xl border-zinc-800/50 shadow-2xl">
+            <CardHeader className="py-3 px-4">
+              <CardTitle className="text-base flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Type className="w-4 h-4 text-sky-400" />
+                  <span>فونت و تایپوگرافی</span>
+                </div>
+                {fontReport && (
+                  <Badge variant="outline" className="text-xs bg-sky-500/10 text-sky-400 border-sky-500/20">
+                    {fontReport.total_fonts_found} فونت
+                  </Badge>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2.5 px-4 pb-4 pt-0 text-xs">
+              {fontReport ? (
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center text-zinc-300">
+                    <span className="text-zinc-400">سازگار با فارسی:</span>
+                    <span className="font-bold text-emerald-400">{fontReport.persian_ready_count} از {fontReport.total_fonts_found}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-zinc-400 text-[11px]">
+                    <span>فایل‌های مستقیم TTF/OTF:</span>
+                    <span className="font-mono text-zinc-300">{fontReport.direct_font_files}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-zinc-400 text-[11px]">
+                    <span>ریسورس‌های کامپایل‌شده:</span>
+                    <span className="font-mono text-zinc-300">{fontReport.engine_resources}</span>
+                  </div>
+                  {Object.keys(stagedFonts).length > 0 && (
+                    <div className="p-1.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px]">
+                      ✓ {Object.keys(stagedFonts).length} فونت جایگزین در صف پچ
+                    </div>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowFontModal(true)}
+                    className="w-full text-xs border-sky-500/30 text-sky-300 hover:bg-sky-500/10"
+                  >
+                    مشاهده جزئیات و جایگزینی
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-zinc-400 text-[11px] leading-relaxed">
+                    تحلیل فونت‌های بازی، سنجش پوشش گلیف‌های فارسی (گ چ پ ژ) و اتصال حروف OpenType.
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={isScanningFonts || (!dirPath && !gameInfo?.game_root)}
+                    onClick={handleScanFonts}
+                    className="w-full text-xs border-zinc-700 hover:border-sky-500 hover:text-sky-300"
+                  >
+                    {isScanningFonts ? "در حال تحلیل فونت‌ها..." : "بررسی فونت‌های بازی"}
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
 
         {/* Main Work Area */}
@@ -740,8 +866,24 @@ export default function FarsiForgeDashboard() {
                         </div>
                       </div>
                       
-                      {/* Action buttons: Export, Import, Save */}
+                      {/* Action buttons: Fonts, Export, Import, Save */}
                       <div className="flex items-center gap-2">
+                        <Button 
+                          onClick={() => {
+                            if (!fontReport) {
+                              handleScanFonts();
+                            } else {
+                              setShowFontModal(true);
+                            }
+                          }}
+                          variant="outline" 
+                          size="sm" 
+                          className="h-9 px-3 bg-zinc-900 border-zinc-700 text-zinc-200 hover:bg-zinc-800 flex items-center gap-1.5"
+                          title="تحلیل و جایگزینی ایمن فونت‌های بازی"
+                        >
+                          <Type className="w-4 h-4 text-sky-400" />
+                          <span>فونت‌های بازی {fontReport ? `(${fontReport.total_fonts_found})` : ""}</span>
+                        </Button>
                         <Button 
                           onClick={handleExport} 
                           variant="outline" 
@@ -1294,6 +1436,225 @@ export default function FarsiForgeDashboard() {
                 >
                   ذخیره تنظیمات
                 </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* Font Inventory & Diagnostics Modal */}
+        {showFontModal && fontReport && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-zinc-950 border border-zinc-800 rounded-2xl max-w-4xl w-full p-6 shadow-2xl space-y-5 text-right flex flex-col max-h-[90vh]"
+              dir="rtl"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between border-b border-zinc-800 pb-3 shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <Type className="w-5 h-5 text-sky-400" />
+                  <div>
+                    <h3 className="text-lg font-bold text-white">مدیریت و تحلیل فونت‌های بازی (Font Inventory)</h3>
+                    <p className="text-xs text-zinc-400">تحلیل گلیف‌های فارسی، پشتیبانی از اتصالات GSUB و جایگزینی امن فونت</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowFontModal(false)}
+                  className="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-zinc-800"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Summary Stats */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0">
+                <div className="bg-zinc-900/60 p-3 rounded-xl border border-zinc-800/80">
+                  <span className="text-[11px] text-zinc-400 block">کل فونت‌های کشف‌شده</span>
+                  <span className="text-xl font-bold text-white">{fontReport.total_fonts_found}</span>
+                </div>
+                <div className="bg-zinc-900/60 p-3 rounded-xl border border-zinc-800/80">
+                  <span className="text-[11px] text-zinc-400 block">سازگار با حروف فارسی</span>
+                  <span className="text-xl font-bold text-emerald-400">{fontReport.persian_ready_count}</span>
+                </div>
+                <div className="bg-zinc-900/60 p-3 rounded-xl border border-zinc-800/80">
+                  <span className="text-[11px] text-zinc-400 block">فایل‌های مستقیم TTF/OTF</span>
+                  <span className="text-xl font-bold text-sky-400">{fontReport.direct_font_files}</span>
+                </div>
+                <div className="bg-zinc-900/60 p-3 rounded-xl border border-zinc-800/80">
+                  <span className="text-[11px] text-zinc-400 block">ریسورس‌های باینری موتور</span>
+                  <span className="text-xl font-bold text-purple-400">{fontReport.engine_resources}</span>
+                </div>
+              </div>
+
+              {/* Diagnostics & Guidance Banner */}
+              <div className="p-3 bg-sky-500/10 border border-sky-500/20 rounded-xl space-y-1 text-xs text-sky-300 shrink-0">
+                <div className="font-semibold flex items-center gap-1.5">
+                  <Info className="w-4 h-4 text-sky-400 shrink-0" />
+                  <span>{fontReport.diagnostic_summary}</span>
+                </div>
+                <p className="text-[11px] text-sky-200/80 mr-5">
+                  {fontReport.recommended_action}
+                </p>
+              </div>
+
+              {/* Font Items List */}
+              <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+                {fontReport.items.length === 0 ? (
+                  <p className="text-center text-zinc-500 py-8">هیچ فونتی در مسیر بازی یافت نشد.</p>
+                ) : (
+                  fontReport.items.map((item, idx) => {
+                    const isStaged = stagedFonts[item.path];
+                    const cov = item.glyph_coverage;
+                    return (
+                      <div
+                        key={item.path || idx}
+                        className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4 space-y-3 transition-colors hover:border-zinc-700"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-xs px-2 py-0.5 rounded bg-zinc-800 text-zinc-200 uppercase font-semibold">
+                              {item.detected_format}
+                            </span>
+                            <span className="font-medium text-sm text-white">
+                              {item.family || (item.path.split(/[/\\]/).pop() || "Font")}
+                            </span>
+                            {item.style && (
+                              <span className="text-xs text-zinc-400">({item.style})</span>
+                            )}
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] ${
+                                item.asset_type === "direct_file"
+                                  ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/20"
+                                  : item.asset_type === "bitmap_atlas"
+                                  ? "bg-amber-500/10 text-amber-300 border-amber-500/20"
+                                  : "bg-purple-500/10 text-purple-300 border-purple-500/20"
+                              }`}
+                            >
+                              {item.asset_type === "direct_file"
+                                ? "فایل مستقیم وکتور"
+                                : item.asset_type === "bitmap_atlas"
+                                ? "اطلس بیت‌مپ (BMFont)"
+                                : "ریسورس کامپایل‌شده موتور"}
+                            </Badge>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            {item.file_size > 0 && (
+                              <span className="text-[11px] font-mono text-zinc-500">
+                                {(item.file_size / 1024).toFixed(1)} KB
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="text-[11px] font-mono text-zinc-400 text-left truncate" dir="ltr" title={item.path}>
+                          {item.path}
+                        </div>
+
+                        {/* Glyph coverage details */}
+                        {cov ? (
+                          <div className="bg-zinc-950/60 rounded-lg p-2.5 border border-zinc-800/60 flex flex-wrap items-center justify-between gap-2 text-xs">
+                            <div className="flex flex-wrap items-center gap-3">
+                              <span className={`flex items-center gap-1 font-medium ${cov.supports_persian ? "text-emerald-400" : "text-amber-400"}`}>
+                                {cov.supports_persian ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertTriangle className="w-3.5 h-3.5" />}
+                                {cov.supports_persian ? "پشتیبانی کامل حروف فارسی" : "فاقد حروف اختصاصی فارسی (گ چ پ ژ)"}
+                              </span>
+                              <span className={`text-[11px] ${cov.has_opentype_shaping ? "text-emerald-400" : "text-zinc-500"}`}>
+                                {cov.has_opentype_shaping ? "✓ اتصالات GSUB فعال" : "فاقد GSUB Shaping"}
+                              </span>
+                              <span className="text-[11px] text-zinc-400">
+                                {cov.supports_persian_digits ? "✓ ارقام فارسی" : "ارقام لاتین"}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[11px] text-zinc-400">پوشش گلیف‌ها:</span>
+                              <span className="font-mono font-bold text-xs text-white">
+                                {cov.coverage_percent.toFixed(0)}%
+                              </span>
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {/* Staged or Replace Action */}
+                        <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-zinc-800/60">
+                          {isStaged ? (
+                            <div className="flex items-center gap-2 text-xs text-emerald-400">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                              <span>فونت جایگزین استیج شد: <strong>{isStaged.font_family || "Custom Font"}</strong></span>
+                              <span className="text-[10px] font-mono text-zinc-500">
+                                (SHA: {isStaged.target_sha256.slice(0, 8)}...)
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="text-xs text-zinc-400">
+                              {item.can_replace ? (
+                                <span className="text-zinc-400">
+                                  این فونت قابلیت جایگزینی مستقیم با فونت سفارشی فارسی (مانند Vazirmatn) را دارد.
+                                </span>
+                              ) : (
+                                <span className="text-amber-400/90 flex items-center gap-1">
+                                  <AlertTriangle className="w-3.5 h-3.5" />
+                                  {item.unsupported_reason || "جایگزینی مستقیم این فرمت توسط موتور مسدود است."}
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          {item.can_replace && (
+                            <Button
+                              size="sm"
+                              variant={isStaged ? "outline" : "default"}
+                              onClick={() => handleStageFontReplacement(item.path)}
+                              className={`text-xs h-8 ${
+                                isStaged
+                                  ? "border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10"
+                                  : "bg-sky-600 hover:bg-sky-700 text-white"
+                              }`}
+                            >
+                              <Type className="w-3.5 h-3.5 ml-1.5" />
+                              {isStaged ? "تغییر فونت انتخابی..." : "انتخاب فونت جایگزین (TTF/OTF)..."}
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Safety Footer & Close */}
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-zinc-800 shrink-0">
+                <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>
+                    امنیت تراکنشی تضمین‌شده: فونت‌های جایگزین منحصراً در پوشه WorkingDir/out آماده‌سازی می‌شوند و فایل‌های بازی دست‌نخورده باقی می‌مانند.
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleScanFonts}
+                    disabled={isScanningFonts}
+                    className="text-xs border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+                  >
+                    {isScanningFonts ? "در حال اسکن مجدد..." : "اسکن مجدد"}
+                  </Button>
+                  <Button
+                    onClick={() => setShowFontModal(false)}
+                    className="bg-zinc-800 hover:bg-zinc-700 text-white text-xs"
+                  >
+                    بستن پنجره
+                  </Button>
+                </div>
               </div>
             </motion.div>
           </motion.div>

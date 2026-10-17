@@ -3,6 +3,7 @@
 import {main} from '../models';
 import {core} from '../models';
 import {exchange} from '../models';
+import {fonts} from '../models';
 
 export function BuildPatcher(arg1:string,arg2:string):Promise<main.BuildPatcherResult>;
 
@@ -38,6 +39,8 @@ export function SaveSettings(arg1:main.Settings):Promise<void>;
 
 export function SaveTranslations(arg1:string,arg2:Array<core.StringEntry>):Promise<void>;
 
+export function ScanGameFonts(arg1:string):Promise<fonts.FontInventoryReport>;
+
 export function SearchEntries(arg1:string,arg2:string,arg3:string):Promise<Array<core.StringEntry>>;
 
 export function SelectDirectory():Promise<string>;
@@ -45,6 +48,8 @@ export function SelectDirectory():Promise<string>;
 export function SelectOpenFile():Promise<string>;
 
 export function SelectSaveFile(arg1:string):Promise<string>;
+
+export function StageFontReplacement(arg1:string,arg2:string,arg3:string):Promise<fonts.FontReplacementResult>;
 
 export function UpdateEntryCandidate(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
 

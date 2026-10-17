@@ -379,3 +379,129 @@ export namespace exchange {
 	}
 }
 
+export namespace fonts {
+	export class GlyphCoverageReport {
+	    supports_persian: boolean;
+	    supports_arabic: boolean;
+	    supports_persian_digits: boolean;
+	    has_opentype_shaping: boolean;
+	    total_tested_runes: number;
+	    supported_runes_count: number;
+	    missing_runes?: string[];
+	    coverage_percent: number;
+
+	    static createFrom(source: any = {}) {
+	        return new GlyphCoverageReport(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.supports_persian = source["supports_persian"];
+	        this.supports_arabic = source["supports_arabic"];
+	        this.supports_persian_digits = source["supports_persian_digits"];
+	        this.has_opentype_shaping = source["has_opentype_shaping"];
+	        this.total_tested_runes = source["total_tested_runes"];
+	        this.supported_runes_count = source["supported_runes_count"];
+	        this.missing_runes = source["missing_runes"];
+	        this.coverage_percent = source["coverage_percent"];
+	    }
+	}
+	export class FontInventoryItem {
+	    path: string;
+	    container?: string;
+	    resource_id?: string;
+	    engine: string;
+	    detected_format: string;
+	    asset_type: string;
+	    family?: string;
+	    style?: string;
+	    atlas_texture?: string;
+	    confidence: number;
+	    can_export: boolean;
+	    can_replace: boolean;
+	    unsupported_reason?: string;
+	    glyph_coverage?: GlyphCoverageReport;
+	    file_size: number;
+
+	    static createFrom(source: any = {}) {
+	        return new FontInventoryItem(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.container = source["container"];
+	        this.resource_id = source["resource_id"];
+	        this.engine = source["engine"];
+	        this.detected_format = source["detected_format"];
+	        this.asset_type = source["asset_type"];
+	        this.family = source["family"];
+	        this.style = source["style"];
+	        this.atlas_texture = source["atlas_texture"];
+	        this.confidence = source["confidence"];
+	        this.can_export = source["can_export"];
+	        this.can_replace = source["can_replace"];
+	        this.unsupported_reason = source["unsupported_reason"];
+	        this.glyph_coverage = source["glyph_coverage"];
+	        this.file_size = source["file_size"];
+	    }
+	}
+	export class FontInventoryReport {
+	    game_root: string;
+	    engine: string;
+	    total_fonts_found: number;
+	    direct_font_files: number;
+	    engine_resources: number;
+	    bitmap_atlases: number;
+	    persian_ready_count: number;
+	    items: FontInventoryItem[];
+	    diagnostic_summary: string;
+	    recommended_action: string;
+
+	    static createFrom(source: any = {}) {
+	        return new FontInventoryReport(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.game_root = source["game_root"];
+	        this.engine = source["engine"];
+	        this.total_fonts_found = source["total_fonts_found"];
+	        this.direct_font_files = source["direct_font_files"];
+	        this.engine_resources = source["engine_resources"];
+	        this.bitmap_atlases = source["bitmap_atlases"];
+	        this.persian_ready_count = source["persian_ready_count"];
+	        this.items = this.convertValues(source["items"], FontInventoryItem);
+	        this.diagnostic_summary = source["diagnostic_summary"];
+	        this.recommended_action = source["recommended_action"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) return a;
+		    if (a.slice && a.map) return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    if ("object" === typeof a) return new classs(a);
+		    return a;
+		}
+	}
+	export class FontReplacementResult {
+	    target_rel_path: string;
+	    staged_path: string;
+	    source_sha256: string;
+	    target_sha256: string;
+	    font_family: string;
+
+	    static createFrom(source: any = {}) {
+	        return new FontReplacementResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.target_rel_path = source["target_rel_path"];
+	        this.staged_path = source["staged_path"];
+	        this.source_sha256 = source["source_sha256"];
+	        this.target_sha256 = source["target_sha256"];
+	        this.font_family = source["font_family"];
+	    }
+	}
+}
+

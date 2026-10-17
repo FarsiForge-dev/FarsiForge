@@ -12,6 +12,7 @@ import (
 	"farsiforge/pkg/detection"
 	"farsiforge/pkg/exchange"
 	"farsiforge/pkg/extract"
+	"farsiforge/pkg/fonts"
 	"farsiforge/pkg/inject"
 	"farsiforge/pkg/installer"
 	"farsiforge/pkg/textfilter"
@@ -686,6 +687,11 @@ func (a *App) BuildPatcher(gameRoot string, credits string) (*BuildPatcherResult
 	}
 
 	a.emitProgress("patch", "جمع‌آوری فایل‌های آماده پچ...", 15, fmt.Sprintf("%d تارگت", len(targets)))
+	fontFile := ""
+	if proj.FontPath != "" && fileExists(proj.FontPath) {
+		fontFile = proj.FontPath
+	}
+
 	outputDir := filepath.Join(proj.ProjectDir, "dist")
 	cfg := installer.BuildConfig{
 		GameRoot:    gameRoot,
@@ -697,6 +703,7 @@ func (a *App) BuildPatcher(gameRoot string, credits string) (*BuildPatcherResult
 		Description: "FarsiForge Persian localization patch",
 		Author:      credits,
 		OutputDir:   outputDir,
+		FontFile:    fontFile,
 	}
 
 	a.emitProgress("patch", "بسته‌بندی باینری پچ FFP1 و انتقال فایل‌ها...", 50, "نوشتن در دایرکتوری موقت")
@@ -713,6 +720,67 @@ func (a *App) BuildPatcher(gameRoot string, credits string) (*BuildPatcherResult
 		PatcherExe:  res.PatcherExe,
 		TargetCount: res.TargetCount,
 	}, nil
+}
+
+// ScanGameFonts runs the game font inventory scan and returns detected direct fonts,
+// engine font assets, and bitmap atlases.
+func (a *App) ScanGameFonts(gameRoot string) (*fonts.FontInventoryReport, error) {
+	proj, err := core.LoadGameProject(gameRoot)
+	engine := ""
+	if err == nil && proj != nil {
+		engine = proj.Engine
+	}
+	if engine == "" {
+		if info, err := a.DetectEngine(gameRoot); err == nil && info != nil {
+			engine = info.Engine
+		}
+	}
+	return fonts.ScanGameFonts(gameRoot, engine)
+}
+
+// StageFontReplacement stages a custom replacement font under the project's working directory,
+// capturing hashes and registering it for patch building.
+func (a *App) StageFontReplacement(gameRoot, targetFontRelPath, customFontPath string) (*fonts.FontReplacementResult, error) {
+	proj, err := core.LoadGameProject(gameRoot)
+	if err != nil {
+		return nil, fmt.Errorf("load project: %w", err)
+	}
+	if proj.WorkingDir == "" {
+		return nil, fmt.Errorf("project working directory is not initialized")
+	}
+
+	res, err := fonts.StageFontReplacement(gameRoot, proj.WorkingDir, targetFontRelPath, customFontPath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Register staged font in project state
+	proj.FontPath = res.StagedPath
+	if proj.ModifiedFileHashes == nil {
+		proj.ModifiedFileHashes = make(map[string]string)
+	}
+	proj.ModifiedFileHashes[res.TargetRelPath] = res.SourceSHA256
+
+	alreadyTracked := false
+	for _, mf := range proj.ModifiedFiles {
+		if filepath.ToSlash(mf) == res.TargetRelPath {
+			alreadyTracked = true
+			break
+		}
+	}
+	if !alreadyTracked {
+		proj.ModifiedFiles = append(proj.ModifiedFiles, res.TargetRelPath)
+	}
+
+	projectPath, err := core.ProjectFilePath(gameRoot)
+	if err != nil {
+		return nil, err
+	}
+	if err := proj.Save(projectPath); err != nil {
+		return nil, fmt.Errorf("save project after font replacement: %w", err)
+	}
+
+	return res, nil
 }
 
 // ── helpers ─────────────────────────────────────────────────────────

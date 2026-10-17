@@ -35,6 +35,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Extraction Statistics Reporting**: Added `ExtractionStats` attached to `core.Project` and populated during extraction, tracking accepted, reviewable, technical, and read-only candidate metrics.
 - **Workbench Candidate Quality & Category UI**: Added quality filter chips (`همه`, `با اطمینان بالا`, `نیازمند بازبینی`, `خام`, `فقط‌خواندنی`, `فنی`), semantic category dropdown selector, row category badges, read-only lock notices, and interactive promotion controls.
 - **Game Launch Safety**: `LaunchGame` in `app.go` now validates executable paths against traversal, root boundary escape, directory execution, and empty parameters.
+- **Game-Font Inventory & SFNT Parser (Task C)**: Built a native, zero-dependency SFNT OpenType parser in `pkg/fonts/sfnt.go` extracting family/subfamily metadata from the `name` table, Unicode character map coverage from `cmap` (format 4 and 12), and Arabic shaping feature presence (`GSUB`).
+- **Persian Glyph Coverage Diagnostics**: Implemented `EvaluatePersianCoverage` testing Persian unique letters (گ چ پ ژ ی ک), Arabic base characters, and Persian digits (۰-۹), outputting detailed coverage percentages and missing rune lists.
+- **Multi-Engine Font Scanner**: Built `pkg/fonts/scanner.go` detecting direct vector fonts (`.ttf`, `.otf`, `.ttc`), BMFont atlases (`.fnt`), and engine-compiled resources across Unreal (`.uasset`), Unity (`.fontsettings`, `.assets`), Godot (`.tres`, `.res`), and FromSoftware glyph archives (`.bnd`, `.dcx`).
+- **Transactional Font Replacement Staging**: Implemented `pkg/fonts/replacement.go` to safely stage custom font replacements under `Project.WorkingDir/out/<targetRelPath>` with source and target SHA-256 hash tracking, guaranteeing that installed game files are never mutated.
+- **End-to-End Font Packaging**: Connected staged fonts into `Project.FontPath` and `installer.BuildConfig.FontFile` during patch creation in `BuildPatcher`.
+- **Workbench Font Studio & Diagnostics Modal**: Added a dedicated Font Typography sidebar card and interactive modal displaying font inventory, Persian glyph readiness badges, GSUB shaping detection, and direct custom font replacement file selection.
 
 ### Changed
 - **FromSoftware Staging Contract**: Routed all FromSoftware injector output to `Project.WorkingDir/out/` instead of mutating files inside `GameRoot`. Installed game files remain strictly read-only.

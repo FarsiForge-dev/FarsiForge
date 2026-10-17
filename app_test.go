@@ -611,5 +611,56 @@ func TestApp_CandidateClassificationWorkflow(t *testing.T) {
 	}
 }
 
+func TestApp_FontInventoryAndStaging(t *testing.T) {
+	tempGame := t.TempDir()
+	app := &App{}
+
+	// Setup mock game with a font file
+	fontDir := filepath.Join(tempGame, "Engine", "Fonts")
+	_ = os.MkdirAll(fontDir, 0o755)
+	_ = os.WriteFile(filepath.Join(fontDir, "GameMainFont.ttf"), []byte("dummy ttf content"), 0o644)
+
+	// Setup project
+	proj, projectFile, err := core.NewGameProject("FontGame", tempGame, "unreal")
+	if err != nil {
+		t.Fatalf("failed to create project: %v", err)
+	}
+	if err := proj.Save(projectFile); err != nil {
+		t.Fatalf("failed to save project: %v", err)
+	}
+
+	// 1. Scan fonts
+	report, err := app.ScanGameFonts(tempGame)
+	if err != nil {
+		t.Fatalf("ScanGameFonts failed: %v", err)
+	}
+	if report.DirectFontFiles != 1 {
+		t.Fatalf("expected 1 direct font, got %d", report.DirectFontFiles)
+	}
+
+	// 2. Stage font replacement if Vazirmatn is available
+	vazirPath := filepath.Join("build", "bin", "Tools", "vazirmatn", "Vazirmatn-Regular.ttf")
+	if fileExists(vazirPath) {
+		res, err := app.StageFontReplacement(tempGame, "Engine/Fonts/GameMainFont.ttf", vazirPath)
+		if err != nil {
+			t.Fatalf("StageFontReplacement failed: %v", err)
+		}
+		if res.TargetRelPath != "Engine/Fonts/GameMainFont.ttf" {
+			t.Errorf("unexpected target rel path: %s", res.TargetRelPath)
+		}
+
+		reloaded, err := app.GetProject(tempGame)
+		if err != nil {
+			t.Fatalf("failed to reload project: %v", err)
+		}
+		if reloaded.FontPath != res.StagedPath {
+			t.Fatalf("expected reloaded FontPath to be %s, got %s", res.StagedPath, reloaded.FontPath)
+		}
+		if reloaded.ModifiedFileHashes["Engine/Fonts/GameMainFont.ttf"] != res.SourceSHA256 {
+			t.Fatalf("expected original hash registered in project")
+		}
+	}
+}
+
 
 
