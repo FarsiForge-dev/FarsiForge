@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **FromSoftware & Unreal Archive Container Identity**: Preserved `Container` identity on all strings extracted from FromSoftware `Data0.bhd` archives and Unreal `.pak` / `.utoc` containers, marking archive-nested members clearly as read-only.
 - **Patcher FFP1 Bounds & Bomb Hardening**: Hardened `FarsiForgePatcher.cs` against malicious or corrupt patches with string length limits (64 KB), target limits (100k), record limits (1M), stream bound checks, and decompression bomb guards in `Inflate`.
 - **CI C# Patcher Build Gate**: Added automatic C# patcher compilation in GitHub Actions `test` job before running Go tests, guaranteeing cross-validation regressions run on every PR and commit.
+- **Transactional Package Creation**: `installer.Build` now stages all package components (`FarsiForgePatch.ffp1`, patcher binary, optional font, and README) in a temporary staging directory and publishes them atomically only after every step succeeds.
+- **Portable Patch Mode**: `installer.Build` generates context-aware bilingual README instructions distinguishing standalone self-extracting packages (when `FarsiForgePatcher.exe` is bundled) from portable patch-only distributions (when no patcher is bundled).
+- **Filesystem & Backup Safety**: Hardened `BackupManager` against Windows device names (`CON`, `PRN`, `AUX`, `NUL`, `COM1-9`, `LPT1-9`), NTFS data streams, and symlink escapes with `verifyWithinRoot`. Added nil guards to `RollbackAll`.
+- **Game Launch Safety**: `LaunchGame` in `app.go` now validates executable paths against traversal, root boundary escape, directory execution, and empty parameters.
 
 ### Changed
 - **FromSoftware Staging Contract**: Routed all FromSoftware injector output to `Project.WorkingDir/out/` instead of mutating files inside `GameRoot`. Installed game files remain strictly read-only.

@@ -56,12 +56,18 @@ func (b *BackupManager) BackupFile(relPath string) (string, string, error) {
 	}
 
 	srcPath := filepath.Join(b.gameRoot, relPath)
+	if err := verifyWithinRoot(b.gameRoot, srcPath); err != nil {
+		return "", "", core.WrapFile("backup", relPath, err, "source path escapes game root")
+	}
 	if !fileExists(srcPath) {
 		return "", "", core.NewError("backup", fmt.Sprintf("source file does not exist: %s", srcPath))
 	}
 
 	// Create destination path matching original structure
 	dstPath := filepath.Join(b.backupDir, relPath)
+	if err := verifyWithinRoot(b.backupDir, dstPath); err != nil {
+		return "", "", core.WrapFile("backup", relPath, err, "destination path escapes backup directory")
+	}
 	if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
 		return "", "", core.WrapFile("backup", relPath, err, "failed to create backup subdirectories")
 	}
@@ -101,6 +107,12 @@ func (b *BackupManager) RestoreFile(relPath, expectedHash string) error {
 	relPath = cleanPath
 	srcPath := filepath.Join(b.backupDir, relPath)
 	dstPath := filepath.Join(b.gameRoot, relPath)
+	if err := verifyWithinRoot(b.backupDir, srcPath); err != nil {
+		return core.WrapFile("restore", relPath, err, "backup path escapes backup directory")
+	}
+	if err := verifyWithinRoot(b.gameRoot, dstPath); err != nil {
+		return core.WrapFile("restore", relPath, err, "destination path escapes game root")
+	}
 
 	if !fileExists(srcPath) {
 		return core.NewError("restore", fmt.Sprintf("backup file does not exist: %s", srcPath))
@@ -163,6 +175,12 @@ func (b *BackupManager) RestoreFile(relPath, expectedHash string) error {
 
 // RollbackAll restores all backed up files.
 func (b *BackupManager) RollbackAll(manifest *core.PatchManifest) error {
+	if b == nil {
+		return fmt.Errorf("backup: backup manager is nil")
+	}
+	if manifest == nil || len(manifest.Files) == 0 {
+		return nil
+	}
 	var errs []error
 	for _, file := range manifest.Files {
 		if err := b.RestoreFile(file.RelativePath, file.OriginalHash); err != nil {
@@ -177,17 +195,66 @@ func (b *BackupManager) RollbackAll(manifest *core.PatchManifest) error {
 	return nil
 }
 
+func verifyWithinRoot(root, target string) error {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return err
+	}
+	absTarget, err := filepath.Abs(target)
+	if err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(absRoot, absTarget)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("path %s escapes root directory %s", target, root)
+	}
+	// If target exists or its parent exists, verify symlink resolution does not escape root
+	if evalTarget, err := filepath.EvalSymlinks(absTarget); err == nil {
+		if evalRoot, err := filepath.EvalSymlinks(absRoot); err == nil {
+			evalRel, err := filepath.Rel(evalRoot, evalTarget)
+			if err != nil || evalRel == ".." || strings.HasPrefix(evalRel, ".."+string(filepath.Separator)) {
+				return fmt.Errorf("symlink target %s escapes root directory %s", evalTarget, evalRoot)
+			}
+		}
+	}
+	return nil
+}
+
 func safeRelativePath(name string) (string, error) {
 	name = strings.ReplaceAll(name, "\\", "/")
 	if name == "" || strings.ContainsRune(name, 0) || path.IsAbs(name) {
 		return "", fmt.Errorf("path must be relative")
 	}
 	clean := path.Clean(name)
-	first := strings.SplitN(clean, "/", 2)[0]
-	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || strings.Contains(first, ":") {
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") {
 		return "", fmt.Errorf("path must remain within the game directory")
 	}
+	for _, component := range strings.Split(clean, "/") {
+		if component == "" || component == "." || component == ".." ||
+			strings.HasSuffix(component, ".") || strings.HasSuffix(component, " ") {
+			return "", fmt.Errorf("path contains a component with unsafe Windows semantics")
+		}
+		for _, r := range component {
+			if r < 32 || strings.ContainsRune(`<>:"|?*`, r) {
+				return "", fmt.Errorf("path contains a character unavailable in Windows filenames")
+			}
+		}
+		deviceName := strings.ToUpper(strings.SplitN(component, ".", 2)[0])
+		if isWindowsDeviceName(deviceName) {
+			return "", fmt.Errorf("path contains a reserved Windows device name: %s", deviceName)
+		}
+	}
 	return filepath.FromSlash(clean), nil
+}
+
+func isWindowsDeviceName(name string) bool {
+	switch name {
+	case "CON", "PRN", "AUX", "NUL",
+		"COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+		"LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9":
+		return true
+	}
+	return false
 }
 
 // Helper functions

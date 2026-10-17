@@ -350,12 +350,38 @@ func (a *App) SavePersianOptions(gameRoot string, opts core.PersianOptions) erro
 
 // LaunchGame starts the game executable silently (no console window flash).
 func (a *App) LaunchGame(gameRoot, exeName string) error {
-	exePath := filepath.Join(gameRoot, exeName)
-	if _, err := os.Stat(exePath); err != nil {
-		return fmt.Errorf("game executable not found: %s", exePath)
+	if gameRoot == "" {
+		return fmt.Errorf("launch: game root cannot be empty")
+	}
+	if exeName == "" {
+		return fmt.Errorf("launch: executable name cannot be empty")
+	}
+	cleanExe := filepath.Clean(strings.ReplaceAll(exeName, "\\", "/"))
+	if cleanExe == "." || cleanExe == ".." || strings.HasPrefix(cleanExe, "../") || filepath.IsAbs(cleanExe) {
+		return fmt.Errorf("launch: invalid executable path %q", exeName)
+	}
+	exePath := filepath.Join(gameRoot, cleanExe)
+	absRoot, err := filepath.Abs(gameRoot)
+	if err != nil {
+		return fmt.Errorf("launch: resolve game root: %w", err)
+	}
+	absExe, err := filepath.Abs(exePath)
+	if err != nil {
+		return fmt.Errorf("launch: resolve executable: %w", err)
+	}
+	rel, err := filepath.Rel(absRoot, absExe)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("launch: executable %q escapes game directory", exeName)
+	}
+	info, err := os.Stat(absExe)
+	if err != nil {
+		return fmt.Errorf("game executable not found: %s", absExe)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("launch target is a directory, not an executable: %s", absExe)
 	}
 	// Use RunSilent to avoid a console window flash on Windows.
-	_, err := tools.RunSilent(a.ctx, gameRoot, exePath)
+	_, err = tools.RunSilent(a.ctx, absRoot, absExe)
 	if err != nil {
 		return fmt.Errorf("failed to launch game: %v", err)
 	}

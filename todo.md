@@ -141,11 +141,11 @@ This roadmap is based on a source-level review of the application, Wails/Next.js
 
 ### 13. Strengthen filesystem safety and recovery
 
-- [ ] Audit every read/write path—not just the patcher—against symlinks/reparse points and canonical root boundaries, especially backup/restore, generic text injection, FromSoftware staging, launch-game paths, and temporary directories.
-- [ ] Add tests for traversal, Windows drive/UNC paths, junctions, symbolic links, case-insensitive duplicates, path races, interrupted writes, and a target replaced while a process is running.
-- [ ] Make package creation transactional: write the patch, patcher, font, manifest, and README to a temporary staging directory; publish only after every step succeeds; clean up or clearly quarantine failed partial output.
-- [ ] Require the patcher executable for a user-installable package, or explicitly emit a documented portable patch-only artifact. Never generate installation instructions for a file that was not packaged.
-- [ ] Add nil/empty-input checks and failure-recovery tests to public APIs such as backup rollback.
+- [x] Audit every read/write path—not just the patcher—against symlinks/reparse points and canonical root boundaries, especially backup/restore, generic text injection, FromSoftware staging, launch-game paths, and temporary directories.
+- [x] Add tests for traversal, Windows drive/UNC paths, junctions, symbolic links, case-insensitive duplicates, path races, interrupted writes, and a target replaced while a process is running.
+- [x] Make package creation transactional: write the patch, patcher, font, manifest, and README to a temporary staging directory; publish only after every step succeeds; clean up or clearly quarantine failed partial output.
+- [x] Require the patcher executable for a user-installable package, or explicitly emit a documented portable patch-only artifact. Never generate installation instructions for a file that was not packaged.
+- [x] Add nil/empty-input checks and failure-recovery tests to public APIs such as backup rollback.
 
 **Acceptance criteria:** failed or interrupted operations do not corrupt the source game/project and never leave a misleading “successful” partial installer.
 

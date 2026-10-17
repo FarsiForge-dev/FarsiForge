@@ -96,50 +96,87 @@ func Build(cfg BuildConfig) (*BuildResult, error) {
 		return nil, err
 	}
 
-	if err := os.MkdirAll(cfg.OutputDir, 0o755); err != nil {
-		return nil, fmt.Errorf("installer: create output dir: %w", err)
+	// Create temporary staging directory in the parent directory of OutputDir
+	cleanOut := filepath.Clean(cfg.OutputDir)
+	parentDir := filepath.Dir(cleanOut)
+	if err := os.MkdirAll(parentDir, 0o755); err != nil {
+		return nil, fmt.Errorf("installer: create parent output dir: %w", err)
 	}
-
-	result := &BuildResult{OutputDir: cfg.OutputDir, TargetCount: len(cfg.Targets)}
-
-	// 1. Write the FFP1 patch file.
-	patchPath := filepath.Join(cfg.OutputDir, PatchFileName)
-	if err := writeFFP1Patch(patchPath, cfg); err != nil {
-		return result, fmt.Errorf("installer: write FFP1 patch: %w", err)
+	stageDir, err := os.MkdirTemp(parentDir, ".ffbuild-*")
+	if err != nil {
+		return nil, fmt.Errorf("installer: create staging dir: %w", err)
 	}
-	result.PatchFile = patchPath
+	defer func() {
+		if stageDir != "" {
+			_ = os.RemoveAll(stageDir)
+		}
+	}()
+
+	result := &BuildResult{OutputDir: cleanOut, TargetCount: len(cfg.Targets)}
+
+	// 1. Write the FFP1 patch file in staging.
+	stagePatchPath := filepath.Join(stageDir, PatchFileName)
+	if err := writeFFP1Patch(stagePatchPath, cfg); err != nil {
+		return nil, fmt.Errorf("installer: write FFP1 patch: %w", err)
+	}
 
 	// 2. Stage the patcher binary alongside the patch.
 	if cfg.PatcherExe != "" {
 		if !fileExists(cfg.PatcherExe) {
-			return result, fmt.Errorf("installer: patcher executable not found: %s", cfg.PatcherExe)
+			return nil, fmt.Errorf("installer: patcher executable not found: %s", cfg.PatcherExe)
 		}
-		dst := filepath.Join(cfg.OutputDir, PatcherExeName)
-		if err := copyFile(cfg.PatcherExe, dst); err != nil {
-			return result, fmt.Errorf("installer: stage patcher exe: %w", err)
+		stagePatcherDst := filepath.Join(stageDir, PatcherExeName)
+		if err := copyFile(cfg.PatcherExe, stagePatcherDst); err != nil {
+			return nil, fmt.Errorf("installer: stage patcher exe: %w", err)
 		}
-		result.PatcherExe = dst
 	}
 
 	// 3. Copy font file if provided.
 	if cfg.FontFile != "" {
 		if !fileExists(cfg.FontFile) {
-			return result, fmt.Errorf("installer: font file not found: %s", cfg.FontFile)
+			return nil, fmt.Errorf("installer: font file not found: %s", cfg.FontFile)
 		}
-		fontDir := filepath.Join(cfg.OutputDir, "font")
-		if err := os.MkdirAll(fontDir, 0o755); err != nil {
-			return result, fmt.Errorf("installer: create font directory: %w", err)
+		stageFontDir := filepath.Join(stageDir, "font")
+		if err := os.MkdirAll(stageFontDir, 0o755); err != nil {
+			return nil, fmt.Errorf("installer: create font directory: %w", err)
 		}
-		fontDst := filepath.Join(fontDir, filepath.Base(cfg.FontFile))
-		if err := copyFile(cfg.FontFile, fontDst); err != nil {
-			return result, fmt.Errorf("installer: stage font: %w", err)
+		stageFontDst := filepath.Join(stageFontDir, filepath.Base(cfg.FontFile))
+		if err := copyFile(cfg.FontFile, stageFontDst); err != nil {
+			return nil, fmt.Errorf("installer: stage font: %w", err)
 		}
 		result.FontInstalled = true
 	}
 
-	// 4. Write a README.
-	if err := writeReadme(cfg, result); err != nil {
-		return result, fmt.Errorf("installer: write README: %w", err)
+	// 4. Write README in staging.
+	if err := writeReadme(stageDir, cfg, result); err != nil {
+		return nil, fmt.Errorf("installer: write README: %w", err)
+	}
+
+	// 5. Transactional publish: only publish to cleanOut after every artifact succeeded.
+	if err := os.MkdirAll(cleanOut, 0o755); err != nil {
+		return nil, fmt.Errorf("installer: create output dir: %w", err)
+	}
+	entries, err := os.ReadDir(stageDir)
+	if err != nil {
+		return nil, fmt.Errorf("installer: read staged artifacts: %w", err)
+	}
+	for _, entry := range entries {
+		src := filepath.Join(stageDir, entry.Name())
+		dst := filepath.Join(cleanOut, entry.Name())
+		if entry.IsDir() {
+			if err := copyDir(src, dst); err != nil {
+				return nil, fmt.Errorf("installer: publish directory %s: %w", entry.Name(), err)
+			}
+		} else {
+			if err := copyFile(src, dst); err != nil {
+				return nil, fmt.Errorf("installer: publish file %s: %w", entry.Name(), err)
+			}
+		}
+	}
+
+	result.PatchFile = filepath.Join(cleanOut, PatchFileName)
+	if cfg.PatcherExe != "" {
+		result.PatcherExe = filepath.Join(cleanOut, PatcherExeName)
 	}
 
 	return result, nil
@@ -342,8 +379,36 @@ func isWindowsDeviceName(name string) bool {
 	}
 }
 
-// writeReadme writes a bilingual README.txt into the output directory.
-func writeReadme(cfg BuildConfig, result *BuildResult) error {
+// writeReadme writes a bilingual README.txt into outDir.
+func writeReadme(outDir string, cfg BuildConfig, result *BuildResult) error {
+	hasPatcher := cfg.PatcherExe != ""
+	var installFa, installEn string
+	if hasPatcher {
+		installFa = fmt.Sprintf(`روش نصب:
+1. فایل %s و %s را در کنار هم نگه دارید
+2. %s را اجرا کنید و پوشه بازی را مشخص کنید
+3. یا %s را در پوشه بازی کپی کرده و اجرا کنید
+
+برای حذف فارسی‌ساز:
+1. %s را اجرا کنید
+2. گزینه "حذف فارسی‌ساز" را انتخاب کنید`, PatcherExeName, PatchFileName, PatcherExeName, PatcherExeName, PatcherExeName)
+
+		installEn = fmt.Sprintf(`Install:
+1. Keep %s and %s together
+2. Run %s and select the game folder
+3. Or copy %s into the game folder and run it
+
+Uninstall:
+1. Run %s
+2. Choose "Uninstall"`, PatcherExeName, PatchFileName, PatcherExeName, PatcherExeName, PatcherExeName)
+	} else {
+		installFa = fmt.Sprintf(`روش نصب:
+این بسته فقط حاوی فایل پچ %s است. برای نصب یا حذف پچ، از برنامه FarsiForge یا ابزار FarsiForgePatcherCli استفاده کنید.`, PatchFileName)
+
+		installEn = fmt.Sprintf(`Install:
+This package contains only the patch file (%s). To install or uninstall, use the FarsiForge desktop app or FarsiForgePatcherCli.`, PatchFileName)
+	}
+
 	readme := fmt.Sprintf(`%s — فارسی‌ساز
 ================================
 
@@ -355,14 +420,7 @@ func writeReadme(cfg BuildConfig, result *BuildResult) error {
 توضیحات: %s
 تعداد فایل‌های تغییر یافته: %d
 
-روش نصب:
-1. فایل %s و FarsiForgePatch.ffp1 را در کنار هم نگه دارید
-2. %s را اجرا کنید و پوشه بازی را مشخص کنید
-3. یا %s را در پوشه بازی کپی کرده و اجرا کنید
-
-برای حذف فارسی‌ساز:
-1. %s را اجرا کنید
-2. گزینه "حذف فارسی‌ساز" را انتخاب کنید
+%s
 
 ---
 Game: %s
@@ -372,28 +430,45 @@ Author: %s
 Description: %s
 Modified files: %d
 
-Install:
-1. Keep %s and FarsiForgePatch.ffp1 together
-2. Run %s and select the game folder
-3. Or copy %s into the game folder and run it
-
-Uninstall:
-1. Run %s
-2. Choose "Uninstall"
+%s
 `,
 		orDefault(cfg.PatchName, "FarsiForge Patch"),
 		filepath.Base(orDefault(cfg.GameRoot, ".")), cfg.Engine,
 		orDefault(cfg.Author, "FarsiForge"), cfg.Description, result.TargetCount,
-		PatcherExeName, PatcherExeName, PatcherExeName, PatcherExeName,
+		installFa,
 		filepath.Base(orDefault(cfg.GameRoot, ".")), cfg.Engine,
 		orDefault(cfg.Author, "FarsiForge"), cfg.Description, result.TargetCount,
-		PatcherExeName, PatcherExeName, PatcherExeName, PatcherExeName,
+		installEn,
 	)
 
-	return os.WriteFile(filepath.Join(cfg.OutputDir, "README.txt"), []byte(readme), 0o644)
+	return os.WriteFile(filepath.Join(outDir, "README.txt"), []byte(readme), 0o644)
 }
 
 // ── helpers ─────────────────────────────────────────────────────────
+
+func copyDir(src, dst string) error {
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		s := filepath.Join(src, entry.Name())
+		d := filepath.Join(dst, entry.Name())
+		if entry.IsDir() {
+			if err := copyDir(s, d); err != nil {
+				return err
+			}
+		} else {
+			if err := copyFile(s, d); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
 
 func copyFile(src, dst string) (retErr error) {
 	srcFile, err := os.Open(src)

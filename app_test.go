@@ -453,3 +453,41 @@ func TestSavePersianOptions(t *testing.T) {
 	}
 }
 
+func TestLaunchGame_SecurityAndBoundaries(t *testing.T) {
+	app := &App{}
+	gameRoot := t.TempDir()
+
+	// 1. Empty arguments
+	if err := app.LaunchGame("", "game.exe"); err == nil {
+		t.Fatal("expected error for empty gameRoot")
+	}
+	if err := app.LaunchGame(gameRoot, ""); err == nil {
+		t.Fatal("expected error for empty exeName")
+	}
+
+	// 2. Traversal
+	if err := app.LaunchGame(gameRoot, "../cmd.exe"); err == nil {
+		t.Fatal("expected error for path traversal in exeName")
+	}
+
+	// 3. Absolute path
+	if err := app.LaunchGame(gameRoot, `C:\Windows\notepad.exe`); err == nil {
+		t.Fatal("expected error for absolute path in exeName")
+	}
+
+	// 4. Target is a directory
+	subDir := filepath.Join(gameRoot, "bin")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.LaunchGame(gameRoot, "bin"); err == nil {
+		t.Fatal("expected error when launch target is a directory")
+	}
+
+	// 5. Target does not exist
+	if err := app.LaunchGame(gameRoot, "missing.exe"); err == nil {
+		t.Fatal("expected error when executable is missing")
+	}
+}
+
+
