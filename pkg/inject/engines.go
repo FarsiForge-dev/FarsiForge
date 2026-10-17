@@ -2,7 +2,9 @@ package inject
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/csv"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -284,9 +286,13 @@ func (i *UnrealInjector) Inject(ctx context.Context, info *core.GameInfo, proj *
 	res.StringCount = len(translatedEntries)
 
 	// Group translated entries by their source file so we can build one CSV
-	// per .locres (key,translation).
+	// per .locres (key,translation). Archive-nested entries must not be staged
+	// as loose files.
 	byFile := make(map[string][]core.StringEntry)
 	for _, e := range translatedEntries {
+		if e.Container != "" {
+			return res, fmt.Errorf("file %q is inside archive %q; archive write-back is not supported without a verified repacker. Loose override is not recognized by Unreal Engine without archive repacking", e.File, e.Container)
+		}
 		byFile[e.File] = append(byFile[e.File], e)
 	}
 
@@ -316,34 +322,20 @@ func (i *UnrealInjector) Inject(ctx context.Context, info *core.GameInfo, proj *
 			return res, fmt.Errorf("write CSV for %s: %w", file, err)
 		}
 
-		// Locate the original .locres in the game tree.
+		// Locate the original loose .locres in the game tree.
 		locresPath, err := gameFilePath(info.GameRoot, relFile)
 		if err != nil {
 			return res, err
 		}
 		if !scanner.FileExists(locresPath) {
-			// Check if it exists inside one of the game's .pak archives.
-			repak := repakPath(reg)
-			if repak != "" {
-				pakFiles := scanner.WalkDir(info.GameRoot, 10, func(p string) bool {
-					return strings.EqualFold(filepath.Ext(p), ".pak")
-				})
-				for _, pak := range pakFiles {
-					data, err := tools.RunSilent(ctx, workDir, repak, "get", pak, relFile)
-					if err == nil && len(data) > 0 {
-						tempLocres := filepath.Join(workDir, "locres_from_pak", sanitizePakName(relFile))
-						_ = os.MkdirAll(filepath.Dir(tempLocres), 0o755)
-						if writeErr := os.WriteFile(tempLocres, []byte(data), 0o644); writeErr == nil {
-							locresPath = tempLocres
-							break
-						}
-					}
-				}
-			}
+			return res, fmt.Errorf("locres file not found on disk: %s", file)
 		}
-		if !scanner.FileExists(locresPath) {
-			return res, fmt.Errorf("locres not found on disk or inside .pak archives: %s", file)
+
+		origBytes, err := os.ReadFile(locresPath)
+		if err != nil {
+			return res, fmt.Errorf("read original locres %s: %w", file, err)
 		}
+		origHash := sha256Hex(origBytes)
 
 		outLocres, err := stagedPath(workDir, "out", relFile)
 		if err != nil {
@@ -359,7 +351,12 @@ func (i *UnrealInjector) Inject(ctx context.Context, info *core.GameInfo, proj *
 		if !fileExists(outLocres) {
 			return res, fmt.Errorf("locres import did not create staged output for %s", file)
 		}
-		res.ModifiedFiles = append(res.ModifiedFiles, filepath.ToSlash(relFile))
+		slashRel := filepath.ToSlash(relFile)
+		res.ModifiedFiles = append(res.ModifiedFiles, slashRel)
+		if proj.ModifiedFileHashes == nil {
+			proj.ModifiedFileHashes = make(map[string]string)
+		}
+		proj.ModifiedFileHashes[slashRel] = origHash
 	}
 
 	sort.Strings(res.ModifiedFiles)
@@ -430,7 +427,15 @@ func (i *GenericInjector) Inject(ctx context.Context, info *core.GameInfo, proj 
 			return res, fmt.Errorf("inject %s: %w", relFile, err)
 		}
 		if changed {
-			res.ModifiedFiles = append(res.ModifiedFiles, filepath.ToSlash(relFile))
+			slashRel := filepath.ToSlash(relFile)
+			res.ModifiedFiles = append(res.ModifiedFiles, slashRel)
+			if proj.ModifiedFileHashes == nil {
+				proj.ModifiedFileHashes = make(map[string]string)
+			}
+			origBytes, err := os.ReadFile(absPath)
+			if err == nil {
+				proj.ModifiedFileHashes[slashRel] = sha256Hex(origBytes)
+			}
 		}
 	}
 	if len(res.ModifiedFiles) == 0 {
@@ -628,4 +633,9 @@ func stageUnityOutputs(workDir string, proj *core.Project, modified []string) ([
 func fileExists(name string) bool {
 	info, err := os.Stat(name)
 	return err == nil && !info.IsDir()
+}
+
+func sha256Hex(data []byte) string {
+	h := sha256.Sum256(data)
+	return hex.EncodeToString(h[:])
 }

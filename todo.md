@@ -30,28 +30,28 @@ This roadmap is based on a source-level review of the application, Wails/Next.js
 
 ### 2. Correct FromSoftware archive identity and write-back
 
-- [ ] Preserve the actual archive/container identity for strings extracted from `Data0.bhd`/`Data0.bdt`. In `pkg/extract/fromsoftware_extractor.go`, archive-derived entries currently use a virtual message-archive path as `File` without enough container metadata for the injector to locate the real installed target.
-- [ ] Ensure the injector can distinguish a loose `.fmg`, a loose `.dcx`/BND, and an FMG nested inside an archive. Implement a verified BHD5/BDT rebuild path only when the archive layout and offsets can be preserved safely; otherwise mark those entries read-only and explain why.
-- [ ] Do not return after discovering loose `.fmg` files if supported archive content remains to be scanned. Merge unique entries from all supported sources instead.
-- [ ] Add tests with mixed loose and archived fixtures, duplicate IDs, non-English catalogs, compressed/uncompressed variants, and round-trip validation against the format parsers.
+- [x] Preserve the actual archive/container identity for strings extracted from `Data0.bhd`/`Data0.bdt`. In `pkg/extract/fromsoftware_extractor.go`, archive-derived entries currently use a virtual message-archive path as `File` without enough container metadata for the injector to locate the real installed target.
+- [x] Ensure the injector can distinguish a loose `.fmg`, a loose `.dcx`/BND, and an FMG nested inside an archive. Implement a verified BHD5/BDT rebuild path only when the archive layout and offsets can be preserved safely; otherwise mark those entries read-only and explain why.
+- [x] Do not return after discovering loose `.fmg` files if supported archive content remains to be scanned. Merge unique entries from all supported sources instead.
+- [x] Add tests with mixed loose and archived fixtures, duplicate IDs, non-English catalogs, compressed/uncompressed variants, and round-trip validation against the format parsers.
 
 **Acceptance criteria:** every editable entry maps to a real source target and exact archive member; unsupported cases are visibly read-only rather than failing late or targeting a phantom path.
 
 ### 3. Make Unreal archive extraction compatible with patch creation
 
-- [ ] Define and implement the write-back contract for `.locres` files found inside `.pak` archives. `pkg/extract/engines.go` records the archive member as the entry's file path, while `UnrealInjector` may stage a loose file at that path; `installer.Build` then validates the original as `GameRoot/GamePath`. An archive-only source is not a loose file, so the end-to-end flow can fail or produce an overlay that the game never reads.
-- [ ] For each Unreal content type, choose one explicitly tested strategy: rebuild the containing archive with compatible tooling, generate a supported loose override, or expose extraction-only/read-only capability. Do not silently package a loose replacement for an archive member.
-- [ ] Preserve container, member path, archive identity, game version, and encryption/signing requirements in project entries/patch metadata.
-- [ ] Add end-to-end fixtures for loose `.locres`, `.pak`-resident `.locres`, and UE5 IoStore. Verify the game-relative installation result and clean uninstall.
+- [x] Define and implement the write-back contract for `.locres` files found inside `.pak` archives. `pkg/extract/engines.go` records the archive member as the entry's file path, while `UnrealInjector` may stage a loose file at that path; `installer.Build` then validates the original as `GameRoot/GamePath`. An archive-only source is not a loose file, so the end-to-end flow can fail or produce an overlay that the game never reads.
+- [x] For each Unreal content type, choose one explicitly tested strategy: rebuild the containing archive with compatible tooling, generate a supported loose override, or expose extraction-only/read-only capability. Do not silently package a loose replacement for an archive member.
+- [x] Preserve container, member path, archive identity, game version, and encryption/signing requirements in project entries/patch metadata.
+- [x] Add end-to-end fixtures for loose `.locres`, `.pak`-resident `.locres`, and UE5 IoStore. Verify the game-relative installation result and clean uninstall.
 
 **Acceptance criteria:** the UI only offers patch creation when the selected content can actually be applied to the target game using the generated package.
 
 ### 4. Harden and test the FFP1 reader/apply/uninstall boundary
 
-- [ ] Add a dedicated C# test harness for `patcher/FarsiForgePatcher.cs` and run it in CI. Current workflow builds the patcher but does not run a comparable malformed-patch/apply/uninstall regression suite.
-- [ ] Validate attacker-controlled lengths and counts before allocating memory or looping: target count, record count, UTF-8 strings, blob boundaries, offsets, integer overflow, final sizes, decompressed sizes, and aggregate resource limits. Include malformed, truncated, duplicate, and oversized FFP1 v1/v2 files.
-- [ ] Add property/fuzz tests for Go FFP1 writer ↔ C# reader compatibility, base hashes, rollback failures, interrupted apply/uninstall, and reparse-point races.
-- [ ] Keep the existing safe-relative-path, base-file hash, rollback, and reparse-point checks; expand tests rather than weakening them.
+- [x] Add a dedicated C# test harness for `patcher/FarsiForgePatcher.cs` and run it in CI. Current workflow builds the patcher but does not run a comparable malformed-patch/apply/uninstall regression suite.
+- [x] Validate attacker-controlled lengths and counts before allocating memory or looping: target count, record count, UTF-8 strings, blob boundaries, offsets, integer overflow, final sizes, decompressed sizes, and aggregate resource limits. Include malformed, truncated, duplicate, and oversized FFP1 v1/v2 files.
+- [x] Add property/fuzz tests for Go FFP1 writer ↔ C# reader compatibility, base hashes, rollback failures, interrupted apply/uninstall, and reparse-point races.
+- [x] Keep the existing safe-relative-path, base-file hash, rollback, and reparse-point checks; expand tests rather than weakening them.
 
 **Acceptance criteria:** malformed patches fail closed with actionable errors, before touching target files; any failed apply/uninstall either rolls back cleanly or preserves all recoverable backups and reports the paths.
 

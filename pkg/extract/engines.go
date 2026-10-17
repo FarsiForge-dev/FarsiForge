@@ -268,7 +268,7 @@ func (e *UnrealExtractor) Extract(ctx context.Context, info *core.GameInfo, proj
 	// 2. Export each loose .locres to CSV via fftools.
 	exportedAny := false
 	for _, f := range locresFiles {
-		if e.exportLocresFile(ctx, proj, reg, workDir, f, f) {
+		if e.exportLocresFile(ctx, proj, reg, workDir, f, f, "") {
 			exportedAny = true
 		}
 	}
@@ -296,8 +296,8 @@ func (e *UnrealExtractor) Extract(ctx context.Context, info *core.GameInfo, proj
 }
 
 // exportLocresFile exports a single .locres file to CSV via fftools and adds
-// the entries to the project. Returns true on success.
-func (e *UnrealExtractor) exportLocresFile(ctx context.Context, proj *core.Project, reg core.ToolRegistry, workDir, locresPath, displayPath string) bool {
+// the entries to the project, recording its archive container when nested.
+func (e *UnrealExtractor) exportLocresFile(ctx context.Context, proj *core.Project, reg core.ToolRegistry, workDir, locresPath, displayPath, container string) bool {
 	fftools := fftoolsPath(reg)
 	if fftools == "" {
 		log.Warn("fftools.exe not found (required for Unreal .locres export)")
@@ -337,12 +337,18 @@ func (e *UnrealExtractor) exportLocresFile(ctx context.Context, proj *core.Proje
 		if !textfilter.IsTranslatable(source) {
 			continue
 		}
-		proj.AddEntry(core.StringEntry{
+		entry := core.StringEntry{
 			Source:  source,
 			File:    relPath,
 			Path:    key,
 			Context: "Unreal",
-		})
+		}
+		if container != "" {
+			entry.Container = container
+			entry.Context = "Unreal archive locres (read-only; repacking not supported)"
+			entry.Notes = "READ_ONLY: Archive write-back not supported"
+		}
+		proj.AddEntry(entry)
 		count++
 	}
 	if count > 0 {
@@ -412,6 +418,8 @@ func (e *UnrealExtractor) extractFromPak(ctx context.Context, info *core.GameInf
 		}
 
 		// 1) .locres inside the pak — extract + export.
+		pakRel, _ := filepath.Rel(info.GameRoot, pak)
+		pakContainer := filepath.ToSlash(pakRel)
 		for _, lp := range locresPaths {
 			data, err := tools.RunSilent(ctx, workDir, repak, "get", pak, lp)
 			if err != nil {
@@ -426,7 +434,7 @@ func (e *UnrealExtractor) extractFromPak(ctx context.Context, info *core.GameInf
 				log.Warn("Failed to write locres", "file", local, "error", err)
 				continue
 			}
-			e.exportLocresFile(ctx, proj, reg, workDir, local, lp)
+			e.exportLocresFile(ctx, proj, reg, workDir, local, lp, pakContainer)
 		}
 
 		// 2) .uexp fallback — batch unpack text dirs, then scan locally.
@@ -473,9 +481,10 @@ func (e *UnrealExtractor) extractFromPak(ctx context.Context, info *core.GameInf
 				}
 				seenInFile[s] = true
 				proj.AddEntry(core.StringEntry{
-					Source:  s,
-					File:    filepath.ToSlash(relPath),
-					Context: "Unreal asset text (.uexp, read-only)",
+					Source:    s,
+					File:      filepath.ToSlash(relPath),
+					Container: pakContainer,
+					Context:   "Unreal asset text (.uexp, read-only)",
 				})
 				addedCount++
 			}
@@ -529,6 +538,9 @@ func (e *UnrealExtractor) extractFromUtoc(ctx context.Context, info *core.GameIn
 			continue
 		}
 
+		utocRel, _ := filepath.Rel(info.GameRoot, utoc)
+		utocContainer := filepath.ToSlash(utocRel)
+
 		// 1) Find extracted .locres files
 		locresList := scanner.WalkDir(unpackDir, 10, func(p string) bool {
 			return strings.ToLower(filepath.Ext(p)) == ".locres"
@@ -536,7 +548,7 @@ func (e *UnrealExtractor) extractFromUtoc(ctx context.Context, info *core.GameIn
 		for _, lp := range locresList {
 			relInner, _ := filepath.Rel(unpackDir, lp)
 			relDisplay := filepath.ToSlash(filepath.Join(filepath.Base(utoc), relInner))
-			e.exportLocresFile(ctx, proj, reg, workDir, lp, relDisplay)
+			e.exportLocresFile(ctx, proj, reg, workDir, lp, relDisplay, utocContainer)
 		}
 
 		// 2) Find extracted .uexp files
@@ -559,9 +571,10 @@ func (e *UnrealExtractor) extractFromUtoc(ctx context.Context, info *core.GameIn
 				}
 				seenInFile[s] = true
 				proj.AddEntry(core.StringEntry{
-					Source:  s,
-					File:    relDisplay,
-					Context: "Unreal asset text (.uexp, read-only)",
+					Source:    s,
+					File:      relDisplay,
+					Container: utocContainer,
+					Context:   "Unreal asset text (.uexp, read-only)",
 				})
 				addedCount++
 			}

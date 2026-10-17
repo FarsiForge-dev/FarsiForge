@@ -34,11 +34,14 @@ func (i *FromSoftwareInjector) Inject(ctx context.Context, info *core.GameInfo, 
 		return res, core.NewError("inject", "no translated entries are ready for injection")
 	}
 
-	// Group translations by container file and inner FMG file
-	type targetGroup struct {
-		isContainer bool
-		innerFMG    string
-		entries     []core.StringEntry
+	// Verify entries: archive-nested entries (Container != "") are read-only and cannot be injected
+	for _, entry := range translatedEntries {
+		if entry.Container != "" {
+			return res, core.NewError("inject", fmt.Sprintf(
+				"entry %s (%s) is inside archive %q; BHD5/BDT archive write-back is not supported. Use loose files or a mod loader for injection",
+				entry.ID, entry.File, entry.Container,
+			))
+		}
 	}
 
 	groups := make(map[string]map[string][]core.StringEntry) // outerFile -> innerFMG -> entries

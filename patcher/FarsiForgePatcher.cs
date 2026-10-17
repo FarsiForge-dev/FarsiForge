@@ -128,9 +128,18 @@ namespace FarsiForgePatcher
             uint targetCount = r.ReadUInt32();
             info.BlobSize = r.ReadInt64();
 
+            if (info.BlobSize < 0 || info.BlobSize > r.BaseStream.Length)
+                throw new Exception("invalid patch blob size: " + info.BlobSize);
+
+            const uint MaxTargets = 100000;
+            if (targetCount > MaxTargets)
+                throw new Exception("target count exceeds patch limits: " + targetCount);
+
+            long remainingStream = r.BaseStream.Length - r.BaseStream.Position;
+            if ((long)targetCount * 45 > remainingStream)
+                throw new Exception("patch stream too short for declared target count");
+
             info.TotalSize = 0;
-            if (info.BlobSize < 0)
-                throw new Exception("invalid negative patch blob size");
             HashSet<string> targetPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             for (uint i = 0; i < targetCount; i++)
             {
@@ -144,17 +153,25 @@ namespace FarsiForgePatcher
                 t.Mode = r.ReadByte();
                 if (t.Mode > 1) throw new Exception("unsupported target mode " + t.Mode);
                 t.FinalSize = r.ReadInt64();
-                if (t.FinalSize < 0) throw new Exception("invalid target size: " + t.Path);
+                if (t.FinalSize < 0 || t.FinalSize > 100L * 1024 * 1024 * 1024)
+                    throw new Exception("invalid target size: " + t.Path);
                 t.Sha256 = r.ReadBytes(32);
                 if (t.Sha256.Length != 32) throw new EndOfStreamException("truncated target hash");
                 if (ver >= 2)
                 {
                     t.BaseSize = r.ReadInt64();
-                    if (t.BaseSize < 0) throw new Exception("invalid target base size: " + t.Path);
+                    if (t.BaseSize < 0 || t.BaseSize > 100L * 1024 * 1024 * 1024)
+                        throw new Exception("invalid target base size: " + t.Path);
                     t.BaseSha256 = r.ReadBytes(32);
                     if (t.BaseSha256.Length != 32) throw new EndOfStreamException("truncated target base hash");
                 }
                 uint recCount = r.ReadUInt32();
+                const uint MaxRecordsPerTarget = 1000000;
+                if (recCount > MaxRecordsPerTarget)
+                    throw new Exception("record count exceeds limit: " + recCount);
+                if ((long)recCount * 30 > r.BaseStream.Length - r.BaseStream.Position)
+                    throw new Exception("patch stream too short for declared record count");
+
                 for (uint j = 0; j < recCount; j++)
                 {
                     Record rec = new Record();
@@ -167,7 +184,7 @@ namespace FarsiForgePatcher
                             throw new Exception("unsafe base path: " + rec.BasePath);
                         rec.Offset = r.ReadInt64();
                         rec.Size = r.ReadInt64();
-                        if (rec.Offset < 0 || rec.Size < 0)
+                        if (rec.Offset < 0 || rec.Size < 0 || rec.Size > 100L * 1024 * 1024 * 1024)
                             throw new Exception("invalid base range: " + rec.BasePath);
                     }
                     else if (rec.Src == 1)
@@ -177,7 +194,8 @@ namespace FarsiForgePatcher
                         rec.RawSize = r.ReadInt64();
                         if (rec.PayloadOfs < 0 || rec.ZSize < 0 || rec.RawSize < 0 ||
                             rec.ZSize > Int32.MaxValue || rec.RawSize > Int32.MaxValue ||
-                            rec.PayloadOfs > info.BlobSize || rec.ZSize > info.BlobSize - rec.PayloadOfs)
+                            rec.PayloadOfs > info.BlobSize || rec.ZSize > info.BlobSize - rec.PayloadOfs ||
+                            rec.RawSize > t.FinalSize)
                             throw new Exception("invalid payload range: " + rec.Path);
                     }
                     else throw new Exception("unsupported record source " + rec.Src);
@@ -189,6 +207,8 @@ namespace FarsiForgePatcher
                 if (info.TotalSize > Int64.MaxValue - t.FinalSize)
                     throw new Exception("patch target sizes overflow");
                 info.TotalSize += t.FinalSize;
+                if (info.TotalSize > 500L * 1024 * 1024 * 1024)
+                    throw new Exception("aggregate patch size exceeds limit");
             }
             info.BlobPos = r.BaseStream.Position;
             if (info.BlobSize != r.BaseStream.Length - info.BlobPos)
@@ -544,10 +564,12 @@ namespace FarsiForgePatcher
 
         // ---- helpers ----
 
+        private const uint MaxStringLength = 65536; // 64 KB max string
+
         private static string ReadString(BinaryReader r)
         {
             uint n = r.ReadUInt32();
-            if (n > Int32.MaxValue || n > r.BaseStream.Length - r.BaseStream.Position)
+            if (n > MaxStringLength || (long)n > r.BaseStream.Length - r.BaseStream.Position)
                 throw new EndOfStreamException("invalid or truncated string");
             byte[] data = r.ReadBytes((int)n);
             if (data.Length != (int)n) throw new EndOfStreamException("truncated string");
@@ -615,15 +637,19 @@ namespace FarsiForgePatcher
 
         private static byte[] Inflate(byte[] src, long expected)
         {
+            if (expected < 0 || expected > Int32.MaxValue)
+                throw new Exception("invalid expected inflate size: " + expected);
             using (MemoryStream ms = new MemoryStream(src))
             using (DeflateStream ds = new DeflateStream(ms, CompressionMode.Decompress))
-            using (MemoryStream om = new MemoryStream((int)expected))
+            using (MemoryStream om = new MemoryStream((int)Math.Min(expected, 16 * 1024 * 1024)))
             {
                 byte[] b = new byte[1024 * 1024];
                 for (; ; )
                 {
                     int n = ds.Read(b, 0, b.Length);
                     if (n <= 0) break;
+                    if (om.Length + n > expected)
+                        throw new Exception("decompressed size exceeds expected size");
                     om.Write(b, 0, n);
                 }
                 if (om.Length != expected)
