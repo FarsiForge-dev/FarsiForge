@@ -4,6 +4,9 @@ import {main} from '../models';
 import {core} from '../models';
 import {exchange} from '../models';
 import {fonts} from '../models';
+import {assetbrowser} from '../models';
+
+export function BrowseGameAssets(arg1:string):Promise<assetbrowser.AssetBrowserView>;
 
 export function BuildPatcher(arg1:string,arg2:string):Promise<main.BuildPatcherResult>;
 

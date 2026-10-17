@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"farsiforge/pkg/assetbrowser"
 	"farsiforge/pkg/core"
 	"farsiforge/pkg/detection"
 	"farsiforge/pkg/exchange"
@@ -250,7 +251,11 @@ func (a *App) DetectEngine(path string) (*core.GameInfo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve game directory: %w", err)
 	}
-	res, err := a.registry.Detect(gameRoot)
+	reg := a.registry
+	if reg == nil {
+		reg = detection.DefaultRegistry()
+	}
+	res, err := reg.Detect(gameRoot)
 	if err != nil {
 		return nil, fmt.Errorf("detection failed: %v", err)
 	}
@@ -781,6 +786,21 @@ func (a *App) StageFontReplacement(gameRoot, targetFontRelPath, customFontPath s
 	}
 
 	return res, nil
+}
+
+// BrowseGameAssets returns a hierarchical tree view of game assets, containers, and resources.
+func (a *App) BrowseGameAssets(gameRoot string) (*assetbrowser.AssetBrowserView, error) {
+	proj, err := core.LoadGameProject(gameRoot)
+	engine := ""
+	if err == nil && proj != nil {
+		engine = proj.Engine
+	}
+	if engine == "" {
+		if info, err := a.DetectEngine(gameRoot); err == nil && info != nil {
+			engine = info.Engine
+		}
+	}
+	return assetbrowser.BrowseGameAssets(gameRoot, engine)
 }
 
 // ── helpers ─────────────────────────────────────────────────────────

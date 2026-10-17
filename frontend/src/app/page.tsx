@@ -59,10 +59,11 @@ import {
   UpdateEntryCandidate,
   ClassifyProjectEntries,
   ScanGameFonts,
-  StageFontReplacement
+  StageFontReplacement,
+  BrowseGameAssets
 } from "../../wailsjs/go/main/App";
 import { EventsOn } from "../../wailsjs/runtime/runtime";
-import { core, main, fonts } from "../../wailsjs/go/models";
+import { core, main, fonts, assetbrowser } from "../../wailsjs/go/models";
 
 type Step = "detect" | "extract" | "translate" | "inject" | "patch" | "success";
 
@@ -96,6 +97,13 @@ export default function FarsiForgeDashboard() {
   const [isScanningFonts, setIsScanningFonts] = useState(false);
   const [stagedFonts, setStagedFonts] = useState<Record<string, fonts.FontReplacementResult>>({});
   const [showFontModal, setShowFontModal] = useState(false);
+  const [assetView, setAssetView] = useState<assetbrowser.AssetBrowserView | null>(null);
+  const [isBrowsingAssets, setIsBrowsingAssets] = useState(false);
+  const [showAssetBrowserModal, setShowAssetBrowserModal] = useState(false);
+  const [assetFilter, setAssetFilter] = useState<string>("all");
+  const [assetSearch, setAssetSearch] = useState<string>("");
+  const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
+  const [selectedAssetNode, setSelectedAssetNode] = useState<assetbrowser.AssetNode | null>(null);
   const [persianOpts, setPersianOpts] = useState({
     rtl: true,
     shaping: true,
@@ -255,6 +263,96 @@ export default function FarsiForgeDashboard() {
     return filteredEntries.slice(start, start + PAGE_SIZE);
   }, [filteredEntries, currentPage]);
 
+  const renderAssetTree = (nodes?: assetbrowser.AssetNode[], depth = 0): any => {
+    if (!nodes || nodes.length === 0) return null;
+    return nodes
+      .filter((n) => {
+        if (assetSearch) {
+          const s = assetSearch.toLowerCase();
+          const match = n.name.toLowerCase().includes(s) || n.rel_path.toLowerCase().includes(s);
+          if (!match && (!n.children || n.children.length === 0)) return false;
+        }
+        if (assetFilter === "containers") {
+          return n.type === "container_archive" || (n.children && n.children.length > 0);
+        }
+        if (assetFilter === "extractable") {
+          return n.can_extract || n.text_count > 0 || (n.children && n.children.length > 0);
+        }
+        if (assetFilter === "readonly") {
+          return n.read_only || (n.children && n.children.length > 0);
+        }
+        return true;
+      })
+      .map((node) => {
+        const isExpanded = expandedNodes[node.id] ?? (depth < 2);
+        const isSelected = selectedAssetNode?.id === node.id;
+        const hasChildren = node.children && node.children.length > 0;
+
+        return (
+          <div key={node.id} className="space-y-0.5">
+            <div
+              onClick={() => setSelectedAssetNode(node)}
+              className={`flex items-center justify-between gap-2 px-2 py-1 rounded cursor-pointer text-xs transition-colors ${
+                isSelected 
+                  ? "bg-indigo-600/30 text-white border border-indigo-500/40" 
+                  : "hover:bg-zinc-800/60 text-zinc-300"
+              }`}
+              style={{ marginRight: `${depth * 14}px` }}
+            >
+              <div className="flex items-center gap-1.5 truncate">
+                {hasChildren ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setExpandedNodes((prev) => ({ ...prev, [node.id]: !isExpanded }));
+                    }}
+                    className="p-0.5 text-zinc-500 hover:text-white"
+                  >
+                    {isExpanded ? "▼" : "◀"}
+                  </button>
+                ) : (
+                  <span className="w-3" />
+                )}
+                {node.type === "folder" ? (
+                  <FolderOpen className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                ) : node.type === "container_archive" ? (
+                  <Box className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                ) : node.type === "parsed_resource" ? (
+                  <Database className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                ) : (
+                  <Code2 className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                )}
+                <span className="truncate font-medium">{node.name}</span>
+                {node.format && node.type !== "folder" && (
+                  <span className="text-[10px] text-zinc-500 uppercase font-mono">
+                    .{node.format}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1 shrink-0">
+                {node.text_count > 0 && (
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
+                    {node.text_count} متن
+                  </Badge>
+                )}
+                {node.read_only ? (
+                  <span title={node.read_only_reason}><Lock className="w-3 h-3 text-amber-400" /></span>
+                ) : node.can_inject ? (
+                  <span title="قابل تزریق"><Check className="w-3 h-3 text-emerald-400" /></span>
+                ) : null}
+              </div>
+            </div>
+
+            {hasChildren && isExpanded && (
+              <div>{renderAssetTree(node.children, depth + 1)}</div>
+            )}
+          </div>
+        );
+      });
+  };
+
   const handleTogglePersian = async (key: string) => {
     const next = { ...persianOpts, [key]: !persianOpts[key as keyof typeof persianOpts] };
     setPersianOpts(next);
@@ -362,6 +460,41 @@ export default function FarsiForgeDashboard() {
         title: "خطا در جایگزینی فونت",
         message: String(e),
       });
+    }
+  };
+
+  const handleBrowseAssets = async () => {
+    const targetDir = gameInfo?.game_root || dirPath;
+    if (!targetDir) {
+      setNotification({
+        type: "warning",
+        title: "مسیر بازی مشخص نیست",
+        message: "لطفاً ابتدا مسیر بازی را انتخاب کنید تا فایل‌ها و دارایی‌ها کاوش شوند.",
+      });
+      return;
+    }
+    setIsBrowsingAssets(true);
+    try {
+      const view = await BrowseGameAssets(targetDir);
+      setAssetView(view);
+      setShowAssetBrowserModal(true);
+      if (view.root_nodes && view.root_nodes.length > 0) {
+        setSelectedAssetNode(view.root_nodes[0]);
+      }
+      setNotification({
+        type: "success",
+        title: "کاوش ساختار دارایی‌ها کامل شد",
+        message: `تعداد ${view.total_files} فایل (${view.total_containers} کانتینر آرشیو، ${view.total_parsed_resources} منبع متنی کامپایل‌شده) شناسایی شد.`,
+      });
+    } catch (e) {
+      console.error(e);
+      setNotification({
+        type: "error",
+        title: "خطا در کاوش دارایی‌ها",
+        message: String(e),
+      });
+    } finally {
+      setIsBrowsingAssets(false);
     }
   };
 
@@ -801,6 +934,18 @@ export default function FarsiForgeDashboard() {
                           شناسایی موتور
                         </Button>
                       )}
+                      {dirPath.trim() && !isProcessing && (
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={handleBrowseAssets} 
+                          disabled={isBrowsingAssets}
+                          className="w-full text-xs border-zinc-700 hover:border-emerald-500 text-zinc-300 flex items-center justify-center gap-1.5 py-3"
+                        >
+                          <FolderSearch className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>{isBrowsingAssets ? "در حال کاوش دارایی‌ها..." : "کاوشگر ساختار فایل‌ها و کانتینرها (Asset Browser)"}</span>
+                        </Button>
+                      )}
                     </div>
                   </motion.div>
                 )}
@@ -866,8 +1011,24 @@ export default function FarsiForgeDashboard() {
                         </div>
                       </div>
                       
-                      {/* Action buttons: Fonts, Export, Import, Save */}
+                      {/* Action buttons: Asset Browser, Fonts, Export, Import, Save */}
                       <div className="flex items-center gap-2">
+                        <Button 
+                          onClick={() => {
+                            if (!assetView) {
+                              handleBrowseAssets();
+                            } else {
+                              setShowAssetBrowserModal(true);
+                            }
+                          }}
+                          variant="outline" 
+                          size="sm" 
+                          className="h-9 px-3 bg-zinc-900 border-zinc-700 text-zinc-200 hover:bg-zinc-800 flex items-center gap-1.5"
+                          title="کاوشگر ساختار فایل‌ها، کانتینرها و اصالت منابع"
+                        >
+                          <FolderSearch className="w-4 h-4 text-emerald-400" />
+                          <span>کاوشگر دارایی‌ها {assetView ? `(${assetView.total_files})` : ""}</span>
+                        </Button>
                         <Button 
                           onClick={() => {
                             if (!fontReport) {
@@ -1650,6 +1811,232 @@ export default function FarsiForgeDashboard() {
                   </Button>
                   <Button
                     onClick={() => setShowFontModal(false)}
+                    className="bg-zinc-800 hover:bg-zinc-700 text-white text-xs"
+                  >
+                    بستن پنجره
+                  </Button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* Compiled Asset Browser & Provenance Modal */}
+        {showAssetBrowserModal && assetView && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-zinc-950 border border-zinc-800 rounded-2xl max-w-6xl w-full p-6 shadow-2xl space-y-4 text-right flex flex-col max-h-[92vh]"
+              dir="rtl"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between border-b border-zinc-800 pb-3 shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <FolderSearch className="w-5 h-5 text-emerald-400" />
+                  <div>
+                    <h3 className="text-lg font-bold text-white">کاوشگر سلسله‌مراتبی دارایی‌های بازی (Compiled Asset Browser)</h3>
+                    <p className="text-xs text-zinc-400">شناسایی فایل‌ها، کانتینرها، منابع کامپایل‌شده و منشأ اصیل متن‌ها (Source Provenance)</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowAssetBrowserModal(false)}
+                  className="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-zinc-800"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Summary Stats */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0">
+                <div className="bg-zinc-900/60 p-3 rounded-xl border border-zinc-800/80">
+                  <span className="text-[11px] text-zinc-400 block">کل فایل‌های کاوش‌شده</span>
+                  <span className="text-xl font-bold text-white">{assetView.total_files}</span>
+                </div>
+                <div className="bg-zinc-900/60 p-3 rounded-xl border border-zinc-800/80">
+                  <span className="text-[11px] text-zinc-400 block">کانتینرها و آرشیوها</span>
+                  <span className="text-xl font-bold text-purple-400">{assetView.total_containers}</span>
+                </div>
+                <div className="bg-zinc-900/60 p-3 rounded-xl border border-zinc-800/80">
+                  <span className="text-[11px] text-zinc-400 block">منابع با پارسر معتبر</span>
+                  <span className="text-xl font-bold text-emerald-400">{assetView.total_parsed_resources}</span>
+                </div>
+                <div className="bg-zinc-900/60 p-3 rounded-xl border border-zinc-800/80">
+                  <span className="text-[11px] text-zinc-400 block">برآورد متون قابل‌استخراج</span>
+                  <span className="text-xl font-bold text-sky-400">{assetView.total_text_records}</span>
+                </div>
+              </div>
+
+              {/* Filter and Search Bar */}
+              <div className="flex flex-wrap items-center justify-between gap-3 shrink-0">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Badge
+                    onClick={() => setAssetFilter("all")}
+                    variant={assetFilter === "all" ? "default" : "outline"}
+                    className="cursor-pointer text-xs"
+                  >
+                    همه ({assetView.total_files})
+                  </Badge>
+                  <Badge
+                    onClick={() => setAssetFilter("containers")}
+                    variant={assetFilter === "containers" ? "default" : "outline"}
+                    className={`cursor-pointer text-xs ${assetFilter === "containers" ? "bg-purple-600 text-white" : "text-purple-400 hover:bg-purple-500/10 border-purple-500/30"}`}
+                  >
+                    کانتینرها و آرشیوها ({assetView.total_containers})
+                  </Badge>
+                  <Badge
+                    onClick={() => setAssetFilter("extractable")}
+                    variant={assetFilter === "extractable" ? "default" : "outline"}
+                    className={`cursor-pointer text-xs ${assetFilter === "extractable" ? "bg-emerald-600 text-white" : "text-emerald-400 hover:bg-emerald-500/10 border-emerald-500/30"}`}
+                  >
+                    منابع دارای متن ({assetView.total_parsed_resources})
+                  </Badge>
+                  <Badge
+                    onClick={() => setAssetFilter("readonly")}
+                    variant={assetFilter === "readonly" ? "default" : "outline"}
+                    className={`cursor-pointer text-xs ${assetFilter === "readonly" ? "bg-amber-600 text-white" : "text-amber-400 hover:bg-amber-500/10 border-amber-500/30"}`}
+                  >
+                    فقط‌خواندنی
+                  </Badge>
+                </div>
+                <Input
+                  value={assetSearch}
+                  onChange={(e) => setAssetSearch(e.target.value)}
+                  placeholder="جستجو در نام فایل‌ها و مسیرها..."
+                  className="bg-zinc-900 border-zinc-800 text-xs w-64"
+                />
+              </div>
+
+              {/* Main Split View: Tree / List on Right, Inspector on Left */}
+              <div className="flex-1 grid grid-cols-1 md:grid-cols-12 gap-4 overflow-hidden min-h-[380px]">
+                {/* Tree View (Col 7) */}
+                <div className="md:col-span-7 bg-zinc-900/40 border border-zinc-800 rounded-xl p-3 overflow-y-auto space-y-1.5">
+                  {renderAssetTree(assetView.root_nodes)}
+                </div>
+
+                {/* Details & Provenance Inspector (Col 5) */}
+                <div className="md:col-span-5 bg-zinc-900/60 border border-zinc-800 rounded-xl p-4 overflow-y-auto flex flex-col justify-between">
+                  {selectedAssetNode ? (
+                    <div className="space-y-4">
+                      <div className="border-b border-zinc-800 pb-3">
+                        <span className="text-[10px] text-zinc-500 uppercase font-mono block">اطلاعات دارایی انتخابی</span>
+                        <h4 className="text-base font-bold text-white break-all">{selectedAssetNode.name}</h4>
+                        <div className="text-[11px] font-mono text-zinc-400 text-left break-all mt-1" dir="ltr">
+                          {selectedAssetNode.rel_path}
+                        </div>
+                      </div>
+
+                      <div className="space-y-2 text-xs">
+                        <div className="flex justify-between items-center py-1 border-b border-zinc-800/60">
+                          <span className="text-zinc-400">نوع دارایی:</span>
+                          <span className="font-medium text-zinc-200">
+                            {selectedAssetNode.type === "container_archive" ? "آرشیو کانتینر" :
+                             selectedAssetNode.type === "parsed_resource" ? "منبع استخراج‌شده" :
+                             selectedAssetNode.type === "raw_candidate" ? "کاندیدای اسکن خام" :
+                             selectedAssetNode.type === "folder" ? "پوشه" : "فایل دارایی"}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center py-1 border-b border-zinc-800/60">
+                          <span className="text-zinc-400">موتور / فرمت:</span>
+                          <span className="font-mono text-indigo-300 uppercase">{selectedAssetNode.format || "N/A"}</span>
+                        </div>
+                        {selectedAssetNode.size_bytes > 0 && (
+                          <div className="flex justify-between items-center py-1 border-b border-zinc-800/60">
+                            <span className="text-zinc-400">حجم فایل:</span>
+                            <span className="font-mono text-zinc-300">
+                              {(selectedAssetNode.size_bytes / 1024).toFixed(1)} KB
+                            </span>
+                          </div>
+                        )}
+                        {selectedAssetNode.container && (
+                          <div className="flex justify-between items-center py-1 border-b border-zinc-800/60">
+                            <span className="text-zinc-400">کانتینر والد:</span>
+                            <span className="font-mono text-purple-300 text-[11px]" dir="ltr">{selectedAssetNode.container}</span>
+                          </div>
+                        )}
+                        {selectedAssetNode.text_count > 0 && (
+                          <div className="flex justify-between items-center py-1 border-b border-zinc-800/60">
+                            <span className="text-zinc-400">تعداد متون استخراجی:</span>
+                            <span className="font-bold text-emerald-400">{selectedAssetNode.text_count}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Write-Back Safety Contract Box */}
+                      <div className={`p-3 rounded-xl border space-y-1.5 text-xs ${
+                        selectedAssetNode.read_only 
+                          ? "bg-amber-500/10 border-amber-500/20 text-amber-300"
+                          : "bg-emerald-500/10 border-emerald-500/20 text-emerald-300"
+                      }`}>
+                        <div className="font-semibold flex items-center gap-1.5">
+                          {selectedAssetNode.read_only ? (
+                            <Lock className="w-4 h-4 text-amber-400 shrink-0" />
+                          ) : (
+                            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                          )}
+                          <span>
+                            {selectedAssetNode.read_only ? "قرارداد فقط‌خواندنی (Read-Only)" : "قابلیت استخراج و تزریق مستقیم (Writable)"}
+                          </span>
+                        </div>
+                        <p className="text-[11px] leading-relaxed">
+                          {selectedAssetNode.read_only 
+                            ? (selectedAssetNode.read_only_reason || "این دارایی فاقد مسیر بازنویسی امن است و مستقیماً تغییر داده نمی‌شود.")
+                            : "این فایل دارای پارسر معتبر است و رشته‌های آن با امنیت کامل به WorkingDir/out تزریق می‌شوند."}
+                        </p>
+                      </div>
+
+                      {/* Metadata tags */}
+                      {selectedAssetNode.metadata && Object.keys(selectedAssetNode.metadata).length > 0 && (
+                        <div className="space-y-1 text-xs">
+                          <span className="text-zinc-400 text-[11px]">ویژگی‌های کانتینر / منبع:</span>
+                          <div className="flex flex-wrap gap-1">
+                            {Object.entries(selectedAssetNode.metadata).map(([k, v]) => (
+                              <span key={k} className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 text-[10px]">
+                                {k}: {v}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-center text-zinc-500 text-xs py-10">
+                      یک فایل یا پوشه را از درخت انتخاب کنید تا جزئیات و اصالت منبع آن نمایش داده شود.
+                    </div>
+                  )}
+
+                  <div className="pt-3 border-t border-zinc-800 text-[10px] text-zinc-500">
+                    ℹ تضمین اصالت: هر متن قابل‌ویرایش به یک منبع مشخص گره خورده و رشته‌های ناشناخته هاردکد نخواهند شد.
+                  </div>
+                </div>
+              </div>
+
+              {/* Safety Footer & Close */}
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-zinc-800 shrink-0">
+                <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>
+                    کاوشگر دارایی‌ها ساختار فایل‌ها را بدون نیاز به استخراج اولیه به صورت درختی نمایش می‌دهد.
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleBrowseAssets}
+                    disabled={isBrowsingAssets}
+                    className="text-xs border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+                  >
+                    {isBrowsingAssets ? "در حال کاوش مجدد..." : "کاوش مجدد"}
+                  </Button>
+                  <Button
+                    onClick={() => setShowAssetBrowserModal(false)}
                     className="bg-zinc-800 hover:bg-zinc-700 text-white text-xs"
                   >
                     بستن پنجره

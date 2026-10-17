@@ -662,5 +662,41 @@ func TestApp_FontInventoryAndStaging(t *testing.T) {
 	}
 }
 
+func TestApp_BrowseGameAssets(t *testing.T) {
+	tempGame := t.TempDir()
+	app := &App{}
 
+	contentDir := filepath.Join(tempGame, "Content", "Localization")
+	_ = os.MkdirAll(contentDir, 0o755)
+	_ = os.WriteFile(filepath.Join(contentDir, "Game.locres"), make([]byte, 100), 0o644)
+	_ = os.WriteFile(filepath.Join(contentDir, "Dialogues.uexp"), []byte("dialogue raw payload"), 0o644)
 
+	// Browse without an existing project first
+	view, err := app.BrowseGameAssets(tempGame)
+	if err != nil {
+		t.Fatalf("BrowseGameAssets failed without project: %v", err)
+	}
+	if view.TotalFiles != 2 {
+		t.Fatalf("expected 2 files, got %d", view.TotalFiles)
+	}
+
+	// Now create a project and browse again
+	proj, projectFile, err := core.NewGameProject("BrowseGame", tempGame, "unreal")
+	if err != nil {
+		t.Fatalf("failed to create project: %v", err)
+	}
+	if err := proj.Save(projectFile); err != nil {
+		t.Fatalf("failed to save project: %v", err)
+	}
+
+	viewWithProj, err := app.BrowseGameAssets(tempGame)
+	if err != nil {
+		t.Fatalf("BrowseGameAssets failed with project: %v", err)
+	}
+	if viewWithProj.Engine != "unreal" {
+		t.Errorf("expected engine unreal, got %s", viewWithProj.Engine)
+	}
+	if len(viewWithProj.RootNodes) == 0 {
+		t.Fatalf("expected root nodes, got none")
+	}
+}

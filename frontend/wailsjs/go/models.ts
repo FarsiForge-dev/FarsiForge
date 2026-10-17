@@ -505,3 +505,89 @@ export namespace fonts {
 	}
 }
 
+export namespace assetbrowser {
+	export class AssetNode {
+	    id: string;
+	    name: string;
+	    rel_path: string;
+	    container?: string;
+	    member_path?: string;
+	    type: string;
+	    format: string;
+	    engine: string;
+	    size_bytes: number;
+	    text_count: number;
+	    parsing_status: string;
+	    can_extract: boolean;
+	    can_inject: boolean;
+	    read_only: boolean;
+	    read_only_reason?: string;
+	    children?: AssetNode[];
+	    metadata?: Record<string, string>;
+
+	    static createFrom(source: any = {}) {
+	        return new AssetNode(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.rel_path = source["rel_path"];
+	        this.container = source["container"];
+	        this.member_path = source["member_path"];
+	        this.type = source["type"];
+	        this.format = source["format"];
+	        this.engine = source["engine"];
+	        this.size_bytes = source["size_bytes"];
+	        this.text_count = source["text_count"];
+	        this.parsing_status = source["parsing_status"];
+	        this.can_extract = source["can_extract"];
+	        this.can_inject = source["can_inject"];
+	        this.read_only = source["read_only"];
+	        this.read_only_reason = source["read_only_reason"];
+	        this.children = this.convertValues(source["children"], AssetNode);
+	        this.metadata = source["metadata"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) return a;
+		    if (a.slice && a.map) return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    if ("object" === typeof a) return new classs(a);
+		    return a;
+		}
+	}
+
+	export class AssetBrowserView {
+	    game_root: string;
+	    engine: string;
+	    total_files: number;
+	    total_containers: number;
+	    total_parsed_resources: number;
+	    total_text_records: number;
+	    root_nodes: AssetNode[];
+
+	    static createFrom(source: any = {}) {
+	        return new AssetBrowserView(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.game_root = source["game_root"];
+	        this.engine = source["engine"];
+	        this.total_files = source["total_files"];
+	        this.total_containers = source["total_containers"];
+	        this.total_parsed_resources = source["total_parsed_resources"];
+	        this.total_text_records = source["total_text_records"];
+	        this.root_nodes = this.convertValues(source["root_nodes"], AssetNode);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) return a;
+		    if (a.slice && a.map) return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    if ("object" === typeof a) return new classs(a);
+		    return a;
+		}
+	}
+}
+
