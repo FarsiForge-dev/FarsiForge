@@ -5,7 +5,7 @@ All notable changes to FarsiForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2026-10-18
+## [v2.0.0] - 2026-10-18
 
 ### Added
 - **WinRAR-Style Archive Explorer in Workbench**: Replaced flat string list with a dual-pane WinRAR-like split-view containing an archive/package tree on the left, an archive-aware file table with monospace source typography and RTL Persian columns on the right, and a docked bottom Dialogue Inspector & Editor with quick navigation and copy actions.

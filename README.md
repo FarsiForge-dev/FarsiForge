@@ -47,8 +47,12 @@
   - Preflight reparse-point and directory symlink security checks preventing path escape attacks.
   - Automatic backup of original game files and atomic byte-for-byte uninstall/restore capability.
 - **🎨 Interactive Desktop Workbench & Headless CLI:**
-  - Modern desktop interface built on Wails v2, Next.js 14, and TailwindCSS with pagination (50 items/page), fuzzy search, status filters (Untranslated, In Progress, QA, Approved), and live QA counters.
+  - Modern desktop interface built on Wails v2, Next.js 14, and TailwindCSS with a WinRAR-style dual-pane archive explorer, live container unpacking feedback, full pipeline back-navigation buttons across all stages, virtualized pagination (50 items/page), fuzzy search, status filters (Untranslated, In Progress, QA, Approved), and live QA counters.
   - Fully featured headless CLI (`farsiforge-cli.exe`) for automation, CI/CD, and batch scripts.
+- **🔍 Compiled Unity Asset & Embedded Font Discovery:**
+  - Deep serialized object browsing and typetree inspection for compiled `.assets` and asset bundles.
+  - Lightning-fast compiled font scanner discovering embedded TTF/OTF fonts in ~7 seconds matching AssetRipper.
+  - Transactional font replacement staging (`StageFontReplacement`) keeping original game files strictly untouched.
 
 ---
 
@@ -135,6 +139,7 @@ FarsiForge orchestrates specialized companion utilities curated within the [Fars
 | **`FarsiForgePatcher.exe`** | [FarsiForge/patcher](file:///d:/FarsiForge-dev/FarsiForge/patcher) | High-performance C# Windows Forms installer with backup, atomic rollback, and uninstall. |
 | **`repak.exe`** | [FarsiForge-dev/repak](https://github.com/FarsiForge-dev/repak) | Blazing-fast Unreal Engine `.pak` archive extractor. |
 | **`retoc.exe`** | [FarsiForge-dev/retoc](https://github.com/FarsiForge-dev/retoc) | Unreal Engine 5 IoStore container (`.utoc` / `.ucas`) unpacker. |
+| **`UnrealLocres.exe`** | [FarsiForge-dev/UnrealLocres](https://github.com/FarsiForge-dev/UnrealLocres) | Standalone Unreal Engine `.locres` CLI for text extraction, CSV/PO export/import, and localization merging. |
 | **`gdre_tools.exe`** | [FarsiForge-dev/gdsdecomp](https://github.com/FarsiForge-dev/gdsdecomp) | Godot PCK reverse-engineering and asset recovery toolkit (v2.8.0 with headless native console subsystem). |
 | **`magic.dat`** | [FarsiForge-dev/CodeWalker](https://github.com/FarsiForge-dev/CodeWalker) | Modern lookup tables for Rockstar RAGE RPF7 AES key derivation. |
 | **`UnityPy`** | [FarsiForge-dev/UnityPy](https://github.com/FarsiForge-dev/UnityPy) | Python module for Unity typetree asset extraction and serialization. |
