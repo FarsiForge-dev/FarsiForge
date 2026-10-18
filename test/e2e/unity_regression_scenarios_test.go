@@ -30,6 +30,11 @@ func TestScenarioA_NoisyUnityAssetFile(t *testing.T) {
 		pythonExe = toolReg.GetPython()
 	}
 
+	// Skip if UnityPy is not installed on the test runner
+	if err := exec.Command(pythonExe, "-c", "import UnityPy").Run(); err != nil {
+		t.Skip("UnityPy module not available on test runner; skipping Scenario A")
+	}
+
 	_, thisFile, _, _ := runtime.Caller(0)
 	repoRoot := filepath.Dir(filepath.Dir(filepath.Dir(thisFile)))
 	extractScript := filepath.Join(repoRoot, "pkg", "tools", "scripts", "extract.py")

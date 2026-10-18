@@ -33,6 +33,14 @@ jobs:
       - name: Build C# Patcher
         run: pwsh -File patcher/build.ps1
 
+      - name: Ensure frontend out directory exists for go:embed
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path frontend/out | Out-Null
+          if (-not (Test-Path frontend/out/index.html)) {
+            Set-Content -Path frontend/out/index.html -Value "<!DOCTYPE html><html><body>placeholder</body></html>"
+          }
+
       - name: go vet
         run: go vet ./...
 
