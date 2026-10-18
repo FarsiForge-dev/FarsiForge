@@ -116,7 +116,11 @@ export namespace assetbrowser {
 	    can_inject: boolean;
 	    read_only: boolean;
 	    read_only_reason?: string;
-
+	
+	    static createFrom(source: any = {}) {
+	        return new AssetProperty(source);
+	    }
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
@@ -140,7 +144,11 @@ export namespace assetbrowser {
 	    read_only_reason?: string;
 	    format?: string;
 	    properties?: AssetProperty[];
-
+	
+	    static createFrom(source: any = {}) {
+	        return new CompiledObjectNode(source);
+	    }
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path_id = source["path_id"];
@@ -153,8 +161,26 @@ export namespace assetbrowser {
 	        this.read_only = source["read_only"];
 	        this.read_only_reason = source["read_only_reason"];
 	        this.format = source["format"];
-	        this.properties = source["properties"];
+	        this.properties = this.convertValues(source["properties"], AssetProperty);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class AssetInspectionResult {
 	    file_rel_path: string;
@@ -164,7 +190,11 @@ export namespace assetbrowser {
 	    has_more: boolean;
 	    objects: CompiledObjectNode[];
 	    error?: string;
-
+	
+	    static createFrom(source: any = {}) {
+	        return new AssetInspectionResult(source);
+	    }
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.file_rel_path = source["file_rel_path"];
@@ -172,10 +202,30 @@ export namespace assetbrowser {
 	        this.page = source["page"];
 	        this.page_size = source["page_size"];
 	        this.has_more = source["has_more"];
-	        this.objects = source["objects"];
+	        this.objects = this.convertValues(source["objects"], CompiledObjectNode);
 	        this.error = source["error"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
+	
+	
 
 }
 

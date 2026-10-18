@@ -37,6 +37,8 @@ export function ImportTranslations(arg1:string,arg2:string):Promise<exchange.Imp
 
 export function Inject(arg1:core.GameInfo):Promise<number>;
 
+export function InspectGameAsset(arg1:string,arg2:string,arg3:number,arg4:number):Promise<assetbrowser.AssetInspectionResult>;
+
 export function InstallPythonPackage(arg1:string):Promise<string>;
 
 export function LaunchGame(arg1:string,arg2:string):Promise<void>;
@@ -64,5 +66,3 @@ export function StageFontReplacement(arg1:string,arg2:string,arg3:string):Promis
 export function UpdateEntryCandidate(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
 
 export function ValidateProject(arg1:string):Promise<Array<core.ValidationError>>;
- 
-export function InspectGameAsset(arg1:string,arg2:string,arg3:number,arg4:number):Promise<assetbrowser.AssetInspectionResult>;
