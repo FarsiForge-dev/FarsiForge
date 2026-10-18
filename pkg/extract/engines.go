@@ -205,13 +205,14 @@ func (e *UnityExtractor) Extract(ctx context.Context, info *core.GameInfo, proj 
 
 	// Read the extracted.json produced by extract.py in the work directory.
 	outJson := filepath.Join(workDir, "extracted.json")
-	data, err := os.ReadFile(outJson)
+	f, err := os.Open(outJson)
 	if err != nil {
 		return core.NewError("extract", "failed to read extracted strings: "+err.Error())
 	}
+	defer f.Close()
 
 	var entries []core.StringEntry
-	if err := json.Unmarshal(data, &entries); err != nil {
+	if err := json.NewDecoder(f).Decode(&entries); err != nil {
 		return core.NewError("extract", "failed to parse extracted strings: "+err.Error())
 	}
 	dataRoot := info.DataPath

@@ -217,6 +217,38 @@ def find_candidate_asset_files(data_dir: str) -> List[Tuple[str, str]]:
                 or fl.startswith("sharedassets")
                 or fl.startswith("globalgamemanagers")
             ):
+                # Filter out giant compressed bundles (>250MB) and non-text media bundles (characters, animations, shaders, audio)
+                if fl.endswith(".bundle") or fl.endswith(".unity3d"):
+                    try:
+                        sz = os.path.getsize(full_path)
+                        if sz > 250 * 1024 * 1024:
+                            continue
+                    except OSError:
+                        continue
+
+                    skip_kw = (
+                        "character",
+                        "animator",
+                        "animation",
+                        "texture",
+                        "shader",
+                        "sound",
+                        "audio",
+                        "music",
+                        "video",
+                        "movie",
+                        "mesh",
+                        "model",
+                        "terrain",
+                        "environment",
+                        "lighting",
+                        "lightmap",
+                        "particle",
+                        "vfx",
+                    )
+                    if any(kw in fl for kw in skip_kw):
+                        continue
+
                 candidates.append((full_path, rel_path))
 
     # Sort files: prioritize globalgamemanagers and resources so MonoScripts are parsed early
@@ -271,6 +303,9 @@ def _walk_value(value, path, emit, file_name, path_id, depth=0, max_depth=10):
 
 
 def _try_read_typetree(obj) -> Optional[dict]:
+    byte_size = getattr(obj, "byte_size", 0)
+    if byte_size > 5 * 1024 * 1024:
+        return None
     try:
         return obj.read_typetree()
     except Exception:
@@ -278,6 +313,9 @@ def _try_read_typetree(obj) -> Optional[dict]:
 
 
 def _try_read_object(obj):
+    byte_size = getattr(obj, "byte_size", 0)
+    if byte_size > 5 * 1024 * 1024:
+        return None
     try:
         return obj.read()
     except Exception:
@@ -416,6 +454,12 @@ def _save_typetree_cache(work_dir: str, cache: dict):
 
 
 def _get_reconstructed_nodes(gen, assembly: str, classname: str, namespace: str, cache: dict):
+    if not assembly or not classname:
+        return None
+    as_lower = assembly.lower()
+    if "editor" in as_lower or as_lower.startswith(("unityengine", "unityeditor", "system", "testrunner")):
+        return None
+
     cache_key = (assembly, classname, namespace)
     if cache_key in cache:
         return cache[cache_key]
@@ -426,6 +470,10 @@ def _get_reconstructed_nodes(gen, assembly: str, classname: str, namespace: str,
 
     try:
         node = gen.get_nodes_up(assembly, fullname)
+        if len(cache) > 500:
+            # Bound cache size to prevent memory leaks on large games
+            for k in list(cache.keys())[:100]:
+                del cache[k]
         cache[cache_key] = node
         return node
     except Exception:
@@ -434,11 +482,17 @@ def _get_reconstructed_nodes(gen, assembly: str, classname: str, namespace: str,
 
 
 def _read_with_reconstructed_nodes(obj, node) -> Optional[dict]:
+    byte_size = getattr(obj, "byte_size", 0)
+    if byte_size > 5 * 1024 * 1024:
+        return None
+
     from UnityPy.streams import EndianBinaryReader
     from UnityPy.helpers.TypeTreeHelper import read_typetree
 
     try:
         raw = obj.get_raw_data()
+        if not raw or len(raw) > 5 * 1024 * 1024:
+            return None
         reader = EndianBinaryReader(raw, endian="<")
         tree = read_typetree(
             node,
@@ -453,8 +507,14 @@ def _read_with_reconstructed_nodes(obj, node) -> Optional[dict]:
 
 
 def _raw_scan_mb(obj, emit, file_name, path_id):
+    byte_size = getattr(obj, "byte_size", 0)
+    if byte_size > 2 * 1024 * 1024:
+        return
+
     try:
         raw = obj.get_raw_data()
+        if not raw or len(raw) > 2 * 1024 * 1024:
+            return
         endian = getattr(obj.reader, "endian", "<")
     except Exception:
         return
@@ -520,8 +580,17 @@ def main():
         print(f"ERROR: work_dir is not writable ({work_dir}): {e}")
         sys.exit(4)
 
-    results = []
-    seen = set()
+    out_path = os.path.join(work_dir, "extracted.json")
+    try:
+        out_f = open(out_path, "w", encoding="utf-8")
+        out_f.write("[\n")
+    except OSError as e:
+        print(f"ERROR: could not create output file {out_path}: {e}")
+        sys.exit(4)
+
+    is_first_entry = True
+    extracted_count = 0
+    seen_hashes = set()
 
     stats = {
         "text_assets": 0,
@@ -533,20 +602,23 @@ def main():
     }
 
     def emit(file_name, path_id, path, source, context):
-        key = (file_name, path_id, path)
-        if key in seen:
+        nonlocal is_first_entry, extracted_count
+        key_hash = hash((file_name, path_id, path))
+        if key_hash in seen_hashes:
             return
-        seen.add(key)
-        results.append(
-            {
-                "id": f"{file_name}_{path_id}_{path}",
-                "source": source,
-                "file": file_name,
-                "path": path,
-                "context": context,
-                "status": "untranslated",
-            }
-        )
+        seen_hashes.add(key_hash)
+        entry = {
+            "id": f"{file_name}_{path_id}_{path}",
+            "source": source,
+            "file": file_name,
+            "path": path,
+            "context": context,
+            "status": "untranslated",
+        }
+        prefix = "  " if is_first_entry else ",\n  "
+        out_f.write(prefix + json.dumps(entry, ensure_ascii=False))
+        is_first_entry = False
+        extracted_count += 1
 
     # 1. Discover candidate serialized files
     candidate_files = find_candidate_asset_files(data_dir)
@@ -580,7 +652,12 @@ def main():
                     pass
 
         # Process TextAssets and MonoBehaviours
+        obj_count = 0
         for obj in env.objects:
+            obj_count += 1
+            if obj_count % 200 == 0:
+                gc.collect()
+
             try:
                 type_name = obj.type.name
                 if type_name not in ("TextAsset", "MonoBehaviour"):
@@ -682,26 +759,25 @@ def main():
                 stats["errors"] += 1
                 continue
 
-        # Immediately free the loaded asset file from memory
+        # Immediately free the loaded asset file and break cyclic references
+        try:
+            if hasattr(env, "files") and isinstance(env.files, dict):
+                env.files.clear()
+            if hasattr(env, "objects") and isinstance(env.objects, dict):
+                env.objects.clear()
+        except Exception:
+            pass
         del env
         gc.collect()
 
     # Final cleanup & save
+    out_f.write("\n]\n")
+    out_f.close()
+
     _save_typetree_cache(work_dir, tt_cache)
-    _write_and_summary(work_dir, results, stats)
-
-
-def _write_and_summary(work_dir, results, stats):
-    out_path = os.path.join(work_dir, "extracted.json")
-    try:
-        with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(results, f, ensure_ascii=False, indent=2)
-    except OSError as e:
-        print(f"ERROR: could not write {out_path}: {e}")
-        sys.exit(4)
 
     summary = {
-        "extracted": len(results),
+        "extracted": extracted_count,
         "text_assets": stats["text_assets"],
         "mono_behaviours": stats["mono_behaviours"],
         "skipped_no_typetree": stats["skipped_no_typetree"],
@@ -710,7 +786,7 @@ def _write_and_summary(work_dir, results, stats):
         "errors": stats["errors"],
         "output": out_path,
     }
-    print(f"Extracted {len(results)} items to {out_path}")
+    print(f"Extracted {extracted_count} items to {out_path}")
     print(f"SUMMARY: {json.dumps(summary, ensure_ascii=False)}")
     sys.exit(0)
 

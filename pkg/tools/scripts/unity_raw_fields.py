@@ -9,7 +9,8 @@ to the object's raw data and become part of the project entry identity.
 import re
 import struct
 
-_MAX_STRING_BYTES = 16 * 1024 * 1024
+_MAX_STRING_BYTES = 64 * 1024
+_MAX_RAW_MB_SCAN_BYTES = 2 * 1024 * 1024
 _GUID_RE = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
     r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
@@ -57,7 +58,9 @@ def _looks_translatable(text):
 
 def scan_serialized_strings(raw, endian="<"):
     """Return [(byte_offset, exact_text)] for verified Unity string fields."""
-    if endian not in ("<", ">"):
+    if endian not in ("<", ">") or not raw:
+        return []
+    if len(raw) > _MAX_RAW_MB_SCAN_BYTES:
         return []
 
     fields = []

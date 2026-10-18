@@ -5,9 +5,23 @@ All notable changes to FarsiForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2026-10-17
+## [Unreleased] - 2026-10-18
 
 ### Added
+- **WinRAR-Style Archive Explorer in Workbench**: Replaced flat string list with a dual-pane WinRAR-like split-view containing an archive/package tree on the left, an archive-aware file table with monospace source typography and RTL Persian columns on the right, and a docked bottom Dialogue Inspector & Editor with quick navigation and copy actions.
+- **Live Unpacking Exploration Feedback**: Display live unpacking container and asset paths in Step 2 during extraction.
+
+### Fixed
+- **Critical Unity Python RAM 100% Exhaustion**:
+  - Replaced in-memory array accumulation with direct streaming JSON writer to disk.
+  - Switched duplicate tracking to 64-bit integer hashes (`seen_hashes`).
+  - Filtered out non-text multi-gigabyte media bundles (`character`, `animator`, `texture`, `audio`) and bundles `>250MB`.
+  - Added LRU cache cap (500) on `tt_cache` and skipped engine/editor assembly loops.
+  - Lowered raw byte string size limit from 16MB to 64KB and added 2MB guard on serialized scans.
+  - Added periodic garbage collection every 200 objects and explicit file/object cleanup.
+  - Switched Go `UnityExtractor.Extract` to streaming `json.NewDecoder`.
+- **Pre-Extraction Asset Browser Streamlining**: Removed redundant pre-extraction file structure browse button from detection step.
+
 - **Atomic CSV/XLSX Exchange**: Added validate-all-first import policy for Excel (`.xlsx`) and `.csv` files. Zero modifications are applied if any row contains duplicate IDs, unknown entries, or invalid statuses.
 - **Export & Import UI**: Added direct Export and Import buttons in the translation workbench with native file picker dialogs (`SelectSaveFile` and `SelectOpenFile`) and atomic import reporting.
 - **Unified Validation Pipeline**: Reconciled `pkg/validate.StandardValidator` with `pkg/textfilter.QA` as the single source of truth for placeholder, tag, bracket, and brace integrity.

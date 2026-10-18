@@ -30,7 +30,14 @@ import {
   Lock,
   Filter,
   Sparkles,
-  Type
+  Type,
+  Archive,
+  Folder,
+  FolderTree,
+  FileText,
+  ChevronDown,
+  Search,
+  FileCode
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -110,6 +117,12 @@ export default function FarsiForgeDashboard() {
     digits: true,
     vazirmatn: true,
   });
+
+  // WinRAR-style Archive Explorer state
+  const [selectedArchiveFile, setSelectedArchiveFile] = useState<string>("all");
+  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
+  const [activeArchiveTab, setActiveArchiveTab] = useState<"all" | "dialogue" | "ui" | "quest">("all");
+  const [archiveSearch, setArchiveSearch] = useState<string>("");
 
   useEffect(() => {
     GetToolStatus()
@@ -201,6 +214,49 @@ export default function FarsiForgeDashboard() {
     }
   };
 
+  // Group translations by file/container into an archive file tree (WinRAR-like)
+  const archiveFiles = useMemo(() => {
+    const fileMap: Record<string, {
+      file: string;
+      name: string;
+      dir: string;
+      total: number;
+      dialogues: number;
+      translated: number;
+      categories: Record<string, number>;
+    }> = {};
+
+    for (const t of translations) {
+      const f = t.file || "Other";
+      if (!fileMap[f]) {
+        const normalized = f.replace(/\\/g, "/");
+        const parts = normalized.split("/");
+        const name = parts[parts.length - 1];
+        const dir = parts.slice(0, -1).join("/") || "Root";
+        fileMap[f] = {
+          file: f,
+          name,
+          dir,
+          total: 0,
+          dialogues: 0,
+          translated: 0,
+          categories: {},
+        };
+      }
+      fileMap[f].total++;
+      if (t.category === "dialogue" || t.context === "TextAsset" || (t.path && t.path.toLowerCase().includes("dialogue"))) {
+        fileMap[f].dialogues++;
+      }
+      if (t.translation && t.translation.trim() !== "") {
+        fileMap[f].translated++;
+      }
+      const cat = t.category || "unclassified";
+      fileMap[f].categories[cat] = (fileMap[f].categories[cat] || 0) + 1;
+    }
+
+    return Object.values(fileMap).sort((a, b) => b.total - a.total);
+  }, [translations]);
+
   // Filtered entry list for the translate step: case-insensitive search
   // across id/source/translation/file/notes plus status, candidate class, and category filters.
   const filteredEntries = useMemo(() => {
@@ -208,6 +264,21 @@ export default function FarsiForgeDashboard() {
     return translations
       .map((item, idx) => ({ item, idx }))
       .filter(({ item }) => {
+        // Filter by archive file selected in the left WinRAR tree
+        if (selectedArchiveFile !== "all" && item.file !== selectedArchiveFile) {
+          return false;
+        }
+
+        // Quick archive tab filter (dialogue, ui, quest)
+        if (activeArchiveTab === "dialogue") {
+          const isDial = item.category === "dialogue" || item.context === "TextAsset" || (item.path && item.path.toLowerCase().includes("dialogue"));
+          if (!isDial) return false;
+        } else if (activeArchiveTab === "ui") {
+          if (item.category !== "ui") return false;
+        } else if (activeArchiveTab === "quest") {
+          if (item.category !== "quest" && item.category !== "item") return false;
+        }
+
         if (statusFilter === "qa") {
           if (!(item.notes || "").trim()) return false;
         } else if (statusFilter !== "all" && item.status !== statusFilter) {
@@ -244,12 +315,12 @@ export default function FarsiForgeDashboard() {
         }
         return true;
       });
-  }, [translations, searchQuery, statusFilter, candidateClassFilter, categoryFilter]);
+  }, [translations, searchQuery, statusFilter, candidateClassFilter, categoryFilter, selectedArchiveFile, activeArchiveTab]);
 
   // Reset page when search or filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, statusFilter, candidateClassFilter, categoryFilter]);
+  }, [searchQuery, statusFilter, candidateClassFilter, categoryFilter, selectedArchiveFile, activeArchiveTab]);
 
   const qaIssuesCount = useMemo(() => {
     return translations.filter((t) => (t.notes || "").trim() !== "").length;
@@ -262,6 +333,61 @@ export default function FarsiForgeDashboard() {
     const start = (currentPage - 1) * PAGE_SIZE;
     return filteredEntries.slice(start, start + PAGE_SIZE);
   }, [filteredEntries, currentPage]);
+
+  const activeEntry = useMemo(() => {
+    if (selectedEntryId) {
+      const found = translations.find((t) => t.id === selectedEntryId);
+      if (found) return found;
+    }
+    return visibleEntries.length > 0 ? visibleEntries[0].item : null;
+  }, [translations, selectedEntryId, visibleEntries]);
+
+  const filteredArchiveFiles = useMemo(() => {
+    if (!archiveSearch.trim()) return archiveFiles;
+    const s = archiveSearch.toLowerCase();
+    return archiveFiles.filter(
+      (a) =>
+        a.name.toLowerCase().includes(s) ||
+        a.dir.toLowerCase().includes(s) ||
+        a.file.toLowerCase().includes(s)
+    );
+  }, [archiveFiles, archiveSearch]);
+
+  const handleSelectPrev = () => {
+    if (!activeEntry || filteredEntries.length === 0) return;
+    const idx = filteredEntries.findIndex((e) => e.item.id === activeEntry.id);
+    if (idx > 0) {
+      const prevEntry = filteredEntries[idx - 1].item;
+      setSelectedEntryId(prevEntry.id);
+      const targetPage = Math.floor((idx - 1) / PAGE_SIZE) + 1;
+      if (targetPage !== currentPage) setCurrentPage(targetPage);
+    }
+  };
+
+  const handleSelectNext = () => {
+    if (!activeEntry || filteredEntries.length === 0) return;
+    const idx = filteredEntries.findIndex((e) => e.item.id === activeEntry.id);
+    if (idx >= 0 && idx < filteredEntries.length - 1) {
+      const nextEntry = filteredEntries[idx + 1].item;
+      setSelectedEntryId(nextEntry.id);
+      const targetPage = Math.floor((idx + 1) / PAGE_SIZE) + 1;
+      if (targetPage !== currentPage) setCurrentPage(targetPage);
+    }
+  };
+
+  const handleUpdateTranslation = (entryID: string, newText: string) => {
+    setTranslations((prev) =>
+      prev.map((t) =>
+        t.id === entryID
+          ? {
+              ...t,
+              translation: newText,
+              status: newText.trim() !== "" ? (t.status === "approved" ? "approved" : "translated") : "untranslated",
+            }
+          : t
+      )
+    );
+  };
 
   const renderAssetTree = (nodes?: assetbrowser.AssetNode[], depth = 0): any => {
     if (!nodes || nodes.length === 0) return null;
@@ -645,10 +771,10 @@ export default function FarsiForgeDashboard() {
     <div className="min-h-screen p-6 flex items-center justify-center relative overflow-hidden">
       <div className="absolute inset-0 bg-[radial-gradient(#312e81_1px,transparent_1px)] [background-size:24px_24px] opacity-20 pointer-events-none" />
       
-      <div className="max-w-5xl w-full grid grid-cols-1 lg:grid-cols-12 gap-8 z-10">
+      <div className={`w-full grid grid-cols-1 lg:grid-cols-12 gap-8 z-10 transition-all duration-300 ${currentStep === "translate" ? "max-w-[1600px]" : "max-w-5xl"}`}>
         
         {/* Sidebar / Info Panel */}
-        <div className="lg:col-span-4 flex flex-col gap-5">
+        <div className={`${currentStep === "translate" ? "lg:col-span-3 xl:col-span-3" : "lg:col-span-4"} flex flex-col gap-5`}>
           <div className="flex items-center justify-between gap-4 mb-2">
             <div className="flex items-center gap-4">
               <div className="p-3 bg-primary/10 rounded-2xl border border-primary/20 backdrop-blur-md">
@@ -873,7 +999,7 @@ export default function FarsiForgeDashboard() {
         </div>
 
         {/* Main Work Area */}
-        <div className="lg:col-span-8 flex flex-col">
+        <div className={`${currentStep === "translate" ? "lg:col-span-9 xl:col-span-9" : "lg:col-span-8"} flex flex-col`}>
           <Card className="flex-1 bg-zinc-950/60 backdrop-blur-2xl border-zinc-800/60 shadow-2xl relative overflow-hidden flex flex-col">
             {/* Dynamic header gradient */}
             <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-transparent via-primary to-transparent opacity-50" />
@@ -934,18 +1060,6 @@ export default function FarsiForgeDashboard() {
                           شناسایی موتور
                         </Button>
                       )}
-                      {dirPath.trim() && !isProcessing && (
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          onClick={handleBrowseAssets} 
-                          disabled={isBrowsingAssets}
-                          className="w-full text-xs border-zinc-700 hover:border-emerald-500 text-zinc-300 flex items-center justify-center gap-1.5 py-3"
-                        >
-                          <FolderSearch className="w-3.5 h-3.5 text-emerald-400" />
-                          <span>{isBrowsingAssets ? "در حال کاوش دارایی‌ها..." : "کاوشگر ساختار فایل‌ها و کانتینرها (Asset Browser)"}</span>
-                        </Button>
-                      )}
                     </div>
                   </motion.div>
                 )}
@@ -977,11 +1091,26 @@ export default function FarsiForgeDashboard() {
                     
                     <div className="w-full max-w-md flex flex-col gap-4">
                       {isProcessing ? (
-                        <div className="space-y-2 w-full">
-                          <Progress value={progress} className="h-2 bg-zinc-800" />
-                          <div className="text-center space-y-1">
-                            <p className="text-xs text-purple-300 font-medium animate-pulse">{stageName || "در حال استخراج متون و دارایی‌های بازی..."}</p>
-                            {stageDetail && <p className="text-[11px] text-zinc-500 font-mono">{stageDetail}</p>}
+                        <div className="space-y-4 w-full p-4 rounded-xl bg-zinc-900/60 border border-zinc-800 text-right">
+                          <div className="flex items-center justify-between text-xs text-zinc-400">
+                            <span className="font-mono text-purple-400 font-bold text-sm">{Math.round(progress)}%</span>
+                            <span className="flex items-center gap-1.5 text-purple-300 font-medium">
+                              <Database className="w-4 h-4 animate-spin text-purple-400" />
+                              {stageName || "در حال کاوش و استخراج متون و دارایی‌های بازی..."}
+                            </span>
+                          </div>
+                          <Progress value={progress} className="h-2.5 bg-zinc-800" />
+                          <div className="p-3 rounded-lg bg-zinc-950/80 border border-zinc-800/80 font-mono text-xs text-zinc-300 text-left space-y-1.5" dir="ltr">
+                            <div className="flex items-center gap-2 text-zinc-500 text-[11px]">
+                              <FolderOpen className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                              <span className="truncate">Root: {gameInfo?.game_root || dirPath}</span>
+                            </div>
+                            {stageDetail && (
+                              <div className="text-indigo-300 font-medium truncate flex items-center gap-2">
+                                <span className="text-zinc-500 shrink-0">📦 Unpacking:</span>
+                                <span className="truncate">{stageDetail}</span>
+                              </div>
+                            )}
                           </div>
                         </div>
                       ) : (
@@ -1078,210 +1207,487 @@ export default function FarsiForgeDashboard() {
                       </div>
                     </div>
 
-                    {/* Quality and Classification Filters (Task B) */}
-                    <div className="flex flex-wrap items-center gap-1.5 p-2 rounded-lg bg-zinc-900/60 border border-zinc-800/80 text-xs">
-                      <span className="text-zinc-400 flex items-center gap-1 pl-1 font-medium">
-                        <Filter className="w-3.5 h-3.5 text-indigo-400" />
-                        کیفیت کاندیدا:
-                      </span>
-                      <Badge
-                        onClick={() => setCandidateClassFilter("all")}
-                        variant={candidateClassFilter === "all" ? "default" : "outline"}
-                        className="cursor-pointer text-xs transition-all"
-                      >
-                        همه ({classificationCounts.total})
-                      </Badge>
-                      <Badge
-                        onClick={() => setCandidateClassFilter("high-confidence")}
-                        variant={candidateClassFilter === "high-confidence" ? "default" : "outline"}
-                        className={`cursor-pointer text-xs transition-all ${candidateClassFilter === "high-confidence" ? "bg-emerald-600 text-white" : "text-emerald-400 hover:bg-emerald-500/10 border-emerald-500/30"}`}
-                      >
-                        ✓ با اطمینان بالا ({classificationCounts.high})
-                      </Badge>
-                      <Badge
-                        onClick={() => setCandidateClassFilter("needs-review")}
-                        variant={candidateClassFilter === "needs-review" ? "default" : "outline"}
-                        className={`cursor-pointer text-xs transition-all ${candidateClassFilter === "needs-review" ? "bg-amber-600 text-white" : "text-amber-400 hover:bg-amber-500/10 border-amber-500/30"}`}
-                      >
-                        ? نیازمند بازبینی ({classificationCounts.review})
-                      </Badge>
-                      <Badge
-                        onClick={() => setCandidateClassFilter("raw-heuristic")}
-                        variant={candidateClassFilter === "raw-heuristic" ? "default" : "outline"}
-                        className={`cursor-pointer text-xs transition-all ${candidateClassFilter === "raw-heuristic" ? "bg-sky-600 text-white" : "text-sky-400 hover:bg-sky-500/10 border-sky-500/30"}`}
-                      >
-                        خام / اسکن بایت ({classificationCounts.raw})
-                      </Badge>
-                      <Badge
-                        onClick={() => setCandidateClassFilter("read-only")}
-                        variant={candidateClassFilter === "read-only" ? "default" : "outline"}
-                        className={`cursor-pointer text-xs transition-all ${candidateClassFilter === "read-only" ? "bg-red-900/80 text-white" : "text-rose-400 hover:bg-rose-500/10 border-rose-500/30"}`}
-                      >
-                        🔒 فقط‌خواندنی ({classificationCounts.readOnly})
-                      </Badge>
-                      <Badge
-                        onClick={() => setCandidateClassFilter("technical")}
-                        variant={candidateClassFilter === "technical" ? "default" : "outline"}
-                        className={`cursor-pointer text-xs transition-all ${candidateClassFilter === "technical" ? "bg-zinc-700 text-white" : "text-zinc-400 hover:bg-zinc-700/30 border-zinc-700"}`}
-                      >
-                        فنی / شناسه ({classificationCounts.tech})
-                      </Badge>
-                    </div>
-
-                    <div className="flex gap-2 items-center">
-                      <Input
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="bg-zinc-900 border-zinc-700 text-sm text-zinc-200 flex-1"
-                        placeholder="جستجو در متن‌ها (متن اصلی، ترجمه، فایل، شناسه، یادداشت)..."
-                      />
-                      <select
-                        value={categoryFilter}
-                        onChange={(e) => setCategoryFilter(e.target.value)}
-                        className="bg-zinc-900 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-200 shrink-0"
-                        title="فیلتر بر اساس دسته معنایی"
-                      >
-                        <option value="all">همه دسته‌ها</option>
-                        <option value="dialogue">گفت‌وگو / زیرنویس</option>
-                        <option value="ui">منو و رابط کاربری</option>
-                        <option value="item">آیتم و تجهیزات</option>
-                        <option value="quest">مأموریت و ژورنال</option>
-                        <option value="tutorial">آموزش و راهنما</option>
-                        <option value="system">سیستم و اعلان</option>
-                        <option value="unclassified">عمومی / نامشخص</option>
-                      </select>
-                      <select
-                        value={statusFilter}
-                        onChange={(e) => setStatusFilter(e.target.value)}
-                        className="bg-zinc-900 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-200 shrink-0"
-                      >
-                        <option value="all">همه وضعیت‌ها</option>
-                        <option value="untranslated">بی‌ترجمه</option>
-                        <option value="translated">ترجمه‌شده</option>
-                        <option value="approved">تأییدشده</option>
-                        <option value="skipped">ردشده</option>
-                        <option value="qa">هشدار QA ({qaIssuesCount})</option>
-                      </select>
-                    </div>
-
-                    <div className="flex justify-between items-center text-xs text-zinc-500">
-                      <div>
-                        نمایش {filteredEntries.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1} تا {Math.min(currentPage * PAGE_SIZE, filteredEntries.length)} از {filteredEntries.length} مورد
-                        {filteredEntries.length !== translations.length && ` (کل دیتابیس: ${translations.length})`}
+                    {/* WinRAR Breadcrumb & Archive Metrics Bar */}
+                    <div className="flex flex-wrap items-center justify-between gap-3 p-2.5 rounded-xl bg-zinc-900/90 border border-zinc-800 text-xs font-mono">
+                      <div className="flex items-center gap-2 min-w-0 max-w-full">
+                        <FolderOpen className="w-4 h-4 text-amber-400 shrink-0" />
+                        <span className="text-zinc-500 font-sans">موقعیت:</span>
+                        <span className="text-zinc-200 font-semibold truncate select-all" dir="ltr">
+                          {gameInfo?.game_root ? gameInfo.game_root.replace(/\\/g, "/") : "Game_Root"}
+                          {selectedArchiveFile !== "all" ? ` / ${selectedArchiveFile.replace(/\\/g, "/")}` : " / [تمام آرشیوها و کانتینرها]"}
+                        </span>
                       </div>
-                      {qaIssuesCount > 0 && (
-                        <Badge 
-                          onClick={() => setStatusFilter("qa")}
-                          variant="outline" 
-                          className="cursor-pointer bg-amber-500/10 text-amber-300 border-amber-500/30 flex items-center gap-1 hover:bg-amber-500/20"
-                        >
-                          <AlertTriangle className="w-3 h-3" />
-                          {qaIssuesCount} خطای متغیر/ساختار در ترجمه
+                      <div className="flex flex-wrap items-center gap-1.5 shrink-0 font-sans">
+                        <Badge variant="outline" className="text-[11px] bg-zinc-800/80 text-zinc-300 border-zinc-700">
+                          📦 {archiveFiles.length} بسته آرشیو
                         </Badge>
-                      )}
+                        <Badge variant="outline" className="text-[11px] bg-purple-500/10 text-purple-300 border-purple-500/30">
+                          💬 {archiveFiles.reduce((acc, f) => acc + f.dialogues, 0)} گفت‌وگو
+                        </Badge>
+                        <Badge variant="outline" className="text-[11px] bg-emerald-500/10 text-emerald-400 border-emerald-500/30">
+                          ✓ {translations.filter(t => t.translation?.trim()).length} ترجمه‌شده
+                        </Badge>
+                        {qaIssuesCount > 0 && (
+                          <Badge 
+                            onClick={() => setStatusFilter("qa")}
+                            variant="outline" 
+                            className="cursor-pointer text-[11px] bg-amber-500/10 text-amber-300 border-amber-500/30 flex items-center gap-1 hover:bg-amber-500/20"
+                          >
+                            <AlertTriangle className="w-3 h-3 text-amber-400" />
+                            {qaIssuesCount} خطای QA
+                          </Badge>
+                        )}
+                      </div>
                     </div>
 
-                    <div className="flex-1 bg-zinc-900/50 rounded-xl border border-zinc-800 p-4 space-y-3 overflow-y-auto max-h-[300px]">
-                      {visibleEntries.length === 0 && <p className="text-center text-zinc-500 py-10">متنی یافت نشد.</p>}
-                      {visibleEntries.map(({ item, idx }) => (
-                        <div key={item.id || idx} className="grid grid-cols-2 gap-4 p-3 rounded-lg bg-zinc-950/50 border border-zinc-800/50">
-                          <div className="space-y-1.5 min-w-0">
-                            <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs text-zinc-500">
-                              <div className="flex items-center gap-1.5 truncate">
-                                <span className="truncate text-indigo-300 font-medium" title={item.context || "متن عمومی"}>{item.context || "متن عمومی"}</span>
-                                {item.category && item.category !== "unclassified" && (
-                                  <span className="px-1.5 py-0.2 rounded text-[10px] bg-purple-500/10 text-purple-300 border border-purple-500/20">
-                                    {item.category === "dialogue" ? "گفت‌وگو" :
-                                     item.category === "ui" ? "رابط کاربری" :
-                                     item.category === "item" ? "آیتم" :
-                                     item.category === "quest" ? "مأموریت" :
-                                     item.category === "tutorial" ? "آموزش" :
-                                     item.category === "system" ? "سیستم" : item.category}
+                    {/* Split-View: Left Archive Tree + Right WinRAR Table & Dialogue Inspector */}
+                    <div className="flex flex-col lg:flex-row gap-3.5 h-[590px]">
+                      
+                      {/* Left Panel: Archive Files & Packages Tree */}
+                      <div className="w-full lg:w-72 xl:w-80 shrink-0 bg-zinc-950/70 border border-zinc-800/80 rounded-xl flex flex-col overflow-hidden shadow-xl">
+                        <div className="p-2.5 border-b border-zinc-800 bg-zinc-900/60 flex items-center justify-between">
+                          <div className="flex items-center gap-2 text-xs font-semibold text-zinc-200">
+                            <Archive className="w-4 h-4 text-purple-400" />
+                            <span>بسته‌ها و فایل‌ها ({archiveFiles.length})</span>
+                          </div>
+                          <span className="text-[10px] text-zinc-400 font-mono font-medium">WinRAR View</span>
+                        </div>
+                        
+                        <div className="p-2 border-b border-zinc-800/70 bg-zinc-950/40">
+                          <Input
+                            value={archiveSearch}
+                            onChange={(e) => setArchiveSearch(e.target.value)}
+                            placeholder="فیلتر فایل‌ها و بسته‌ها..."
+                            className="h-8 text-xs bg-zinc-900/80 border-zinc-800 placeholder:text-zinc-600"
+                          />
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto p-2 space-y-1 divide-y divide-zinc-900/40">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedArchiveFile("all")}
+                            className={`w-full text-right p-2 rounded-lg transition-all flex items-center justify-between gap-2 text-xs ${
+                              selectedArchiveFile === "all"
+                                ? "bg-indigo-600/20 border border-indigo-500/40 text-indigo-200 shadow-sm"
+                                : "hover:bg-zinc-900/60 text-zinc-300 border border-transparent"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <FolderTree className="w-4 h-4 text-indigo-400 shrink-0" />
+                              <div className="truncate font-medium">تمام آرشیوها و بسته‌ها</div>
+                            </div>
+                            <Badge variant="outline" className="text-[10px] bg-zinc-900 border-zinc-700 text-zinc-400 font-mono">
+                              {translations.length}
+                            </Badge>
+                          </button>
+
+                          {filteredArchiveFiles.map((f) => {
+                            const isSelected = selectedArchiveFile === f.file;
+                            const ext = f.name.includes(".") ? f.name.split(".").pop()?.toLowerCase() : "";
+                            const icon = ext === "assets" ? (
+                              <Archive className="w-4 h-4 text-amber-400 shrink-0" />
+                            ) : ext === "bundle" ? (
+                              <Box className="w-4 h-4 text-purple-400 shrink-0" />
+                            ) : ext === "locres" ? (
+                              <Languages className="w-4 h-4 text-emerald-400 shrink-0" />
+                            ) : (
+                              <FileCode className="w-4 h-4 text-sky-400 shrink-0" />
+                            );
+
+                            const percent = f.total > 0 ? Math.round((f.translated / f.total) * 100) : 0;
+
+                            return (
+                              <button
+                                key={f.file}
+                                type="button"
+                                onClick={() => setSelectedArchiveFile(f.file)}
+                                className={`w-full text-right p-2 rounded-lg transition-all flex flex-col gap-1 text-xs ${
+                                  isSelected
+                                    ? "bg-indigo-600/20 border border-indigo-500/40 text-indigo-200 shadow-sm"
+                                    : "hover:bg-zinc-900/60 text-zinc-300 border border-transparent"
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-1.5 w-full">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    {icon}
+                                    <span className="truncate font-mono font-medium text-xs text-left" dir="ltr" title={f.name}>
+                                      {f.name}
+                                    </span>
+                                  </div>
+                                  <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 shrink-0">
+                                    {f.total}
                                   </span>
-                                )}
-                                {item.confidence ? (
-                                  <span className="text-[10px] text-zinc-400 font-mono" title="امتیاز اطمینان استخراج">
-                                    {(item.confidence * 100).toFixed(0)}%
+                                </div>
+                                <div className="flex items-center justify-between text-[10px] text-zinc-500 pr-6">
+                                  <span className="truncate text-left font-mono" dir="ltr" title={f.dir}>
+                                    {f.dir}
                                   </span>
-                                ) : null}
-                              </div>
-                              <span className="truncate font-mono text-left text-[11px]" dir="ltr" title={`${item.file}${item.path ? ` · ${item.path}` : ""}`}>
-                                {item.file}{item.path ? ` · ${item.path}` : ""}
-                              </span>
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    {f.dialogues > 0 && (
+                                      <span className="text-purple-400 font-medium">💬 {f.dialogues}</span>
+                                    )}
+                                    {percent > 0 ? (
+                                      <span className="text-emerald-400 font-mono font-semibold">{percent}%</span>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Right Panel: WinRAR Entries Explorer & Dialogue Inspector */}
+                      <div className="flex-1 flex flex-col gap-3 min-w-0 h-full">
+                        
+                        {/* Filter & Search Toolbar */}
+                        <div className="flex flex-col gap-2 shrink-0">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-1 p-1 bg-zinc-900/70 border border-zinc-800 rounded-lg text-xs">
+                              <button
+                                type="button"
+                                onClick={() => setActiveArchiveTab("all")}
+                                className={`px-2.5 py-1 rounded transition-colors ${activeArchiveTab === "all" ? "bg-indigo-600 text-white font-medium" : "text-zinc-400 hover:text-white"}`}
+                              >
+                                همه ({filteredEntries.length})
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setActiveArchiveTab("dialogue")}
+                                className={`px-2.5 py-1 rounded flex items-center gap-1 transition-colors ${activeArchiveTab === "dialogue" ? "bg-purple-600 text-white font-medium" : "text-zinc-400 hover:text-white"}`}
+                              >
+                                <span>💬 گفت‌وگوها</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setActiveArchiveTab("ui")}
+                                className={`px-2.5 py-1 rounded flex items-center gap-1 transition-colors ${activeArchiveTab === "ui" ? "bg-sky-600 text-white font-medium" : "text-zinc-400 hover:text-white"}`}
+                              >
+                                <span>🔤 رابط کاربری</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setActiveArchiveTab("quest")}
+                                className={`px-2.5 py-1 rounded flex items-center gap-1 transition-colors ${activeArchiveTab === "quest" ? "bg-amber-600 text-white font-medium" : "text-zinc-400 hover:text-white"}`}
+                              >
+                                <span>📜 مأموریت و آیتم</span>
+                              </button>
                             </div>
 
-                            {item.read_only && (
-                              <div className="p-1.5 rounded bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300 flex items-center gap-1.5">
-                                <Lock className="w-3 h-3 text-amber-400 shrink-0" />
-                                <span className="truncate" title={item.read_only_reason || "رشته فاقد مسیر نوشتن امن است"}>
-                                  {item.read_only_reason || "این رشته فقط‌خواندنی است و به بازی تزریق نخواهد شد."}
-                                </span>
+                            <div className="flex items-center gap-2 flex-1 min-w-[240px]">
+                              <div className="relative flex-1">
+                                <Search className="w-3.5 h-3.5 text-zinc-500 absolute right-2.5 top-2.5" />
+                                <Input
+                                  value={searchQuery}
+                                  onChange={(e) => setSearchQuery(e.target.value)}
+                                  className="pr-8 h-8 text-xs bg-zinc-900 border-zinc-700 text-zinc-200 placeholder:text-zinc-500"
+                                  placeholder="جستجو در متن انگلیسی، ترجمه، شناسه، فایل..."
+                                />
                               </div>
-                            )}
-
-                            {item.context === "MonoBehaviour" && item.path?.startsWith("raw_") && (
-                              <p className="text-xs text-amber-400" title="فیلد منبع از روی فایل باینری قابل‌تأیید نیست؛ تزریق این متن پشتیبانی نمی‌شود.">
-                                اسکن خام؛ محل فیلد تأییدنشده و فعلاً غیرقابل‌تزریق
-                              </p>
-                            )}
-                            {item.context === "MonoBehaviour raw serialized string (typetree unavailable)" && (
-                              <p className="text-xs text-sky-400" title="رشته و offset باینری تأیید شده‌اند؛ نام فیلد بازیابی نشده است.">
-                                رشتهٔ سریال‌شده با offset دقیق؛ نام فیلد در دسترس نیست
-                              </p>
-                            )}
-                            {(item.file?.endsWith(".uexp") || item.context?.includes(".uexp")) && (
-                              <p className="text-xs text-amber-400" title="این متن در دارایی کامپایل‌شده بلوپرینت/ویجت هاردکد شده است و جدول locres ندارد؛ تزریق باینری دارایی‌های کامپایل‌شده uexp پشتیبانی نمی‌شود.">
-                                متن دارایی کامپایل‌شده (.uexp)؛ فاقد جدول locres (فقط‌خواندنی)
-                              </p>
-                            )}
-                            <div className="text-left font-mono text-sm text-zinc-400" dir="ltr">{item.source}</div>
-                            {item.notes && (
-                              <div className="text-xs text-amber-400 truncate" dir="ltr" title={item.notes}>⚠ {item.notes}</div>
-                            )}
-
-                            {/* User control to promote candidate */}
-                            {item.candidate_class && item.candidate_class !== "high-confidence" && (
-                              <div className="pt-1 flex items-center gap-2 text-xs">
-                                <button
-                                  type="button"
-                                  onClick={() => handleUpdateCandidate(item.id, "high-confidence")}
-                                  className="text-[11px] text-emerald-400 hover:text-emerald-300 hover:underline flex items-center gap-1"
-                                >
-                                  <Sparkles className="w-3 h-3" />
-                                  تأیید به عنوان کاندیدای معتبر
-                                </button>
-                              </div>
-                            )}
+                              <select
+                                value={statusFilter}
+                                onChange={(e) => setStatusFilter(e.target.value)}
+                                className="h-8 bg-zinc-900 border border-zinc-700 rounded-md px-2 text-xs text-zinc-200 shrink-0"
+                              >
+                                <option value="all">همه وضعیت‌ها</option>
+                                <option value="untranslated">بی‌ترجمه</option>
+                                <option value="translated">ترجمه‌شده</option>
+                                <option value="approved">تأییدشده</option>
+                                <option value="qa">هشدار QA ({qaIssuesCount})</option>
+                              </select>
+                            </div>
                           </div>
 
-                          <div className="flex flex-col justify-between">
-                            <Input
-                              value={item.translation || ""}
-                              disabled={item.read_only}
-                              onChange={(e) => {
-                                const v = e.target.value;
-                                setTranslations((prev) => prev.map((t, i) => (i === idx ? { ...t, translation: v } : t)));
-                              }}
-                              className={`text-right text-sm ${item.read_only ? "bg-zinc-900/30 border-zinc-800 text-zinc-500 cursor-not-allowed" : "bg-zinc-900 border-zinc-700 text-zinc-200"}`}
-                              placeholder={item.read_only ? "غیرقابل ویرایش (فقط‌خواندنی)..." : "ترجمه..."}
-                            />
-                            {item.read_only && (
-                              <p className="text-[10px] text-zinc-500 text-right mt-1">تزریق برای دارایی‌های بدون ساختار مشخص غیرفعال است</p>
-                            )}
+                          <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                            <span className="text-zinc-500 flex items-center gap-1 pl-1">
+                              <Filter className="w-3 h-3 text-indigo-400" />
+                              کیفیت:
+                            </span>
+                            <Badge
+                              onClick={() => setCandidateClassFilter("all")}
+                              variant={candidateClassFilter === "all" ? "default" : "outline"}
+                              className="cursor-pointer text-[11px] py-0 px-2 transition-all"
+                            >
+                              همه ({classificationCounts.total})
+                            </Badge>
+                            <Badge
+                              onClick={() => setCandidateClassFilter("high-confidence")}
+                              variant={candidateClassFilter === "high-confidence" ? "default" : "outline"}
+                              className={`cursor-pointer text-[11px] py-0 px-2 transition-all ${candidateClassFilter === "high-confidence" ? "bg-emerald-600 text-white" : "text-emerald-400 hover:bg-emerald-500/10 border-emerald-500/30"}`}
+                            >
+                              ✓ مطمئن ({classificationCounts.high})
+                            </Badge>
+                            <Badge
+                              onClick={() => setCandidateClassFilter("needs-review")}
+                              variant={candidateClassFilter === "needs-review" ? "default" : "outline"}
+                              className={`cursor-pointer text-[11px] py-0 px-2 transition-all ${candidateClassFilter === "needs-review" ? "bg-amber-600 text-white" : "text-amber-400 hover:bg-amber-500/10 border-amber-500/30"}`}
+                            >
+                              ? بازبینی ({classificationCounts.review})
+                            </Badge>
+                            <Badge
+                              onClick={() => setCandidateClassFilter("read-only")}
+                              variant={candidateClassFilter === "read-only" ? "default" : "outline"}
+                              className={`cursor-pointer text-[11px] py-0 px-2 transition-all ${candidateClassFilter === "read-only" ? "bg-red-900/80 text-white" : "text-rose-400 hover:bg-rose-500/10 border-rose-500/30"}`}
+                            >
+                              🔒 فقط‌خواندنی ({classificationCounts.readOnly})
+                            </Badge>
                           </div>
                         </div>
-                      ))}
+
+                        {/* WinRAR File Table */}
+                        <div className="flex-1 overflow-auto rounded-xl border border-zinc-800/80 bg-zinc-950/80">
+                          <table className="w-full text-right text-xs border-collapse">
+                            <thead className="sticky top-0 bg-zinc-900/95 backdrop-blur border-b border-zinc-800 text-zinc-400 font-medium z-10">
+                              <tr>
+                                <th className="py-2 px-3 text-right w-[230px]">مسیر و شناسه در آرشیو</th>
+                                <th className="py-2 px-2 text-center w-[85px]">دسته</th>
+                                <th className="py-2 px-3 text-left font-mono" dir="ltr">متن اصلی (Source - Monospace)</th>
+                                <th className="py-2 px-3 text-right">ترجمه فارسی (RTL)</th>
+                                <th className="py-2 px-2 text-center w-[75px]">وضعیت</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-zinc-900/60">
+                              {visibleEntries.length === 0 ? (
+                                <tr>
+                                  <td colSpan={5} className="py-12 text-center text-zinc-500">
+                                    هیچ متنی با فیلترهای انتخابی یافت نشد.
+                                  </td>
+                                </tr>
+                              ) : (
+                                visibleEntries.map(({ item, idx }) => {
+                                  const isSelected = activeEntry?.id === item.id;
+                                  const hasTranslation = Boolean(item.translation?.trim());
+
+                                  return (
+                                    <tr
+                                      key={item.id || idx}
+                                      onClick={() => setSelectedEntryId(item.id)}
+                                      className={`cursor-pointer transition-colors ${
+                                        isSelected
+                                          ? "bg-indigo-950/60 border-r-2 border-indigo-500 text-white"
+                                          : "hover:bg-zinc-900/40 text-zinc-300"
+                                      }`}
+                                    >
+                                      <td className="py-2 px-3 align-top font-mono text-[11px] max-w-[230px]">
+                                        <div className="flex items-center gap-1.5">
+                                          {item.read_only ? (
+                                            <span title={item.read_only_reason || "فقط‌خواندنی"}>
+                                              <Lock className="w-3 h-3 text-amber-400 shrink-0" />
+                                            </span>
+                                          ) : (
+                                            <FileText className="w-3 h-3 text-zinc-500 shrink-0" />
+                                          )}
+                                          <span className="truncate text-indigo-300" dir="ltr" title={item.file}>
+                                            {item.file}
+                                          </span>
+                                        </div>
+                                        {item.path ? (
+                                          <div className="truncate text-[10px] text-zinc-500 pr-4" dir="ltr" title={item.path}>
+                                            {item.path}
+                                          </div>
+                                        ) : null}
+                                      </td>
+                                      <td className="py-2 px-2 align-top text-center">
+                                        <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] ${
+                                          item.category === "dialogue" ? "bg-purple-500/10 text-purple-300 border border-purple-500/20" :
+                                          item.category === "ui" ? "bg-sky-500/10 text-sky-300 border border-sky-500/20" :
+                                          item.category === "quest" ? "bg-amber-500/10 text-amber-300 border border-amber-500/20" :
+                                          item.category === "item" ? "bg-emerald-500/10 text-emerald-300 border border-emerald-500/20" :
+                                          "bg-zinc-800/60 text-zinc-400"
+                                        }`}>
+                                          {item.category === "dialogue" ? "گفت‌وگو" :
+                                           item.category === "ui" ? "UI" :
+                                           item.category === "quest" ? "مأموریت" :
+                                           item.category === "item" ? "آیتم" : "عمومی"}
+                                        </span>
+                                      </td>
+                                      <td className="py-2 px-3 align-top font-mono text-[11px] text-zinc-300 text-left" dir="ltr">
+                                        <div className="line-clamp-2 select-text" title={item.source}>
+                                          {item.source}
+                                        </div>
+                                      </td>
+                                      <td className="py-2 px-3 align-top text-xs text-zinc-100 text-right" dir="rtl">
+                                        {hasTranslation ? (
+                                          <div className="line-clamp-2 text-emerald-300 font-medium" title={item.translation}>
+                                            {item.translation}
+                                          </div>
+                                        ) : (
+                                          <span className="text-zinc-600 italic">بدون ترجمه</span>
+                                        )}
+                                      </td>
+                                      <td className="py-2 px-2 align-top text-center">
+                                        {item.read_only ? (
+                                          <span className="text-[10px] text-amber-400 bg-amber-500/10 px-1 py-0.5 rounded border border-amber-500/20">قفل</span>
+                                        ) : hasTranslation ? (
+                                          <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-1 py-0.5 rounded border border-emerald-500/20">ترجمه‌شده</span>
+                                        ) : (
+                                          <span className="text-[10px] text-zinc-500 bg-zinc-800/40 px-1 py-0.5 rounded">خام</span>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* Bottom Panel: WinRAR Inspector / Dialogue Editor */}
+                        <div className="h-[195px] shrink-0 bg-zinc-950/95 rounded-xl border border-zinc-800 p-3 flex flex-col justify-between shadow-2xl">
+                          {activeEntry ? (
+                            <div className="h-full flex flex-col justify-between gap-2">
+                              {/* Top details of active entry */}
+                              <div className="flex items-center justify-between gap-2 border-b border-zinc-800/70 pb-1.5 text-xs">
+                                <div className="flex items-center gap-2 truncate min-w-0">
+                                  <span className="font-mono text-indigo-400 font-medium truncate" dir="ltr" title={`${activeEntry.file} · ${activeEntry.path || activeEntry.context}`}>
+                                    📦 {activeEntry.file} {activeEntry.path ? `· ${activeEntry.path}` : ""}
+                                  </span>
+                                  {activeEntry.confidence ? (
+                                    <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-zinc-900 border border-zinc-700 text-zinc-400" title="امتیاز اطمینان استخراج">
+                                      {(activeEntry.confidence * 100).toFixed(0)}%
+                                    </span>
+                                  ) : null}
+                                  {activeEntry.read_only && (
+                                    <span className="text-[10px] text-amber-300 bg-amber-500/10 px-1.5 py-0.2 rounded border border-amber-500/30 flex items-center gap-1">
+                                      <Lock className="w-2.5 h-2.5" /> فقط‌خواندنی
+                                    </span>
+                                  )}
+                                  {activeEntry.notes && (
+                                    <span className="text-[10px] text-amber-400 truncate" title={activeEntry.notes}>
+                                      ⚠ {activeEntry.notes}
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <Button
+                                    onClick={handleSelectPrev}
+                                    disabled={filteredEntries.findIndex(e => e.item.id === activeEntry.id) <= 0}
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs bg-zinc-900 border-zinc-800 text-zinc-300 hover:text-white flex items-center gap-1"
+                                    title="مورد قبلی"
+                                  >
+                                    <ChevronRight className="w-3.5 h-3.5" />
+                                    <span>قبلی</span>
+                                  </Button>
+                                  <span className="text-[11px] text-zinc-400 font-mono px-1">
+                                    {filteredEntries.findIndex(e => e.item.id === activeEntry.id) + 1} / {filteredEntries.length}
+                                  </span>
+                                  <Button
+                                    onClick={handleSelectNext}
+                                    disabled={filteredEntries.findIndex(e => e.item.id === activeEntry.id) >= filteredEntries.length - 1}
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs bg-zinc-900 border-zinc-800 text-zinc-300 hover:text-white flex items-center gap-1"
+                                    title="مورد بعدی"
+                                  >
+                                    <span>بعدی</span>
+                                    <ChevronLeft className="w-3.5 h-3.5" />
+                                  </Button>
+                                </div>
+                              </div>
+
+                              {/* 2-column editor */}
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 flex-1 min-h-0">
+                                {/* Source Box */}
+                                <div className="flex flex-col gap-1 min-h-0">
+                                  <div className="flex items-center justify-between text-[11px] text-zinc-400">
+                                    <span className="flex items-center gap-1">
+                                      <FileText className="w-3 h-3 text-indigo-400" />
+                                      متن اصلی انگلیسی (Source):
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        navigator.clipboard.writeText(activeEntry.source);
+                                        setNotification({ type: "info", title: "کپی شد", message: "متن اصلی کپی شد." });
+                                      }}
+                                      className="text-[10px] text-zinc-400 hover:text-white flex items-center gap-1"
+                                      title="کپی متن اصلی به کلیپ‌بورد"
+                                    >
+                                      <Copy className="w-3 h-3" />
+                                      کپی
+                                    </button>
+                                  </div>
+                                  <div
+                                    className="flex-1 p-2 rounded-lg bg-zinc-900/90 border border-zinc-800/80 font-mono text-xs text-zinc-300 overflow-y-auto select-text text-left leading-relaxed"
+                                    dir="ltr"
+                                  >
+                                    {activeEntry.source}
+                                  </div>
+                                </div>
+
+                                {/* Persian Translation Textarea */}
+                                <div className="flex flex-col gap-1 min-h-0">
+                                  <div className="flex items-center justify-between text-[11px] text-zinc-400">
+                                    <span className="flex items-center gap-1">
+                                      <Languages className="w-3 h-3 text-emerald-400" />
+                                      ترجمه فارسی (Persian - Vazirmatn):
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleUpdateTranslation(activeEntry.id, activeEntry.source)}
+                                      disabled={activeEntry.read_only}
+                                      className="text-[10px] text-indigo-400 hover:text-indigo-300 disabled:opacity-50 flex items-center gap-1"
+                                      title="کپی کردن متن انگلیسی به فیلد ترجمه جهت ویرایش"
+                                    >
+                                      <Copy className="w-3 h-3" />
+                                      کپی از منبع
+                                    </button>
+                                  </div>
+                                  <textarea
+                                    value={activeEntry.translation || ""}
+                                    disabled={activeEntry.read_only}
+                                    onChange={(e) => handleUpdateTranslation(activeEntry.id, e.target.value)}
+                                    className={`flex-1 p-2 rounded-lg text-xs leading-relaxed transition-all resize-none ${
+                                      activeEntry.read_only
+                                        ? "bg-zinc-900/30 border-zinc-800 text-zinc-500 cursor-not-allowed"
+                                        : "bg-zinc-900/90 border border-zinc-700 text-zinc-100 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                                    }`}
+                                    dir="rtl"
+                                    placeholder={activeEntry.read_only ? "رشته فقط‌خواندنی است و به بازی تزریق نخواهد شد." : "ترجمه فارسی را اینجا بنویسید..."}
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Bottom bar of active entry */}
+                              <div className="flex items-center justify-between text-[11px] pt-1 border-t border-zinc-900">
+                                <div>
+                                  {activeEntry.candidate_class && activeEntry.candidate_class !== "high-confidence" && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleUpdateCandidate(activeEntry.id, "high-confidence")}
+                                      className="text-emerald-400 hover:text-emerald-300 hover:underline flex items-center gap-1"
+                                    >
+                                      <Sparkles className="w-3 h-3" />
+                                      تأیید به عنوان کاندیدای معتبر
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="text-[10px] text-zinc-500 font-mono">
+                                  {activeEntry.translation?.length || 0} کاراکتر فارسی
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="h-full flex items-center justify-center text-zinc-500 text-xs">
+                              برای مشاهده و ویرایش متن، یک ردیف از جدول یا پکیج را انتخاب کنید.
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
 
-                    {/* Pagination Controls */}
-                    <div className="flex justify-between items-center py-1">
-                      <div className="flex items-center gap-1">
+                    {/* Pagination & Next Step Footer */}
+                    <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                      <div className="flex items-center gap-1.5">
                         <Button 
                           onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} 
                           disabled={currentPage <= 1}
                           variant="outline" 
                           size="sm" 
-                          className="h-8 px-2 bg-zinc-900 border-zinc-800 text-zinc-300"
+                          className="h-8 px-2.5 bg-zinc-900 border-zinc-800 text-zinc-300"
                         >
                           <ChevronRight className="w-4 h-4" />
                           <span>قبلی</span>
@@ -1294,7 +1700,7 @@ export default function FarsiForgeDashboard() {
                           disabled={currentPage >= totalPages}
                           variant="outline" 
                           size="sm" 
-                          className="h-8 px-2 bg-zinc-900 border-zinc-800 text-zinc-300"
+                          className="h-8 px-2.5 bg-zinc-900 border-zinc-800 text-zinc-300"
                         >
                           <span>بعدی</span>
                           <ChevronLeft className="w-4 h-4" />

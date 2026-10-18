@@ -82,9 +82,12 @@ func TestUnityMemoryLeak_Verification(t *testing.T) {
 		t.Skip("skipping heavy real-game memory test in short mode")
 	}
 	gamesRoot := `D:\games`
-	raftPath := filepath.Join(gamesRoot, "Raft")
-	if fi, err := os.Stat(raftPath); err != nil || !fi.IsDir() {
-		t.Skip("Raft game folder not present; skipping memory verification test")
+	targetGame := filepath.Join(gamesRoot, "Orc Massage")
+	if fi, err := os.Stat(targetGame); err != nil || !fi.IsDir() {
+		targetGame = filepath.Join(gamesRoot, "Raft")
+	}
+	if fi, err := os.Stat(targetGame); err != nil || !fi.IsDir() {
+		t.Skip("Neither Orc Massage nor Raft game folder present; skipping memory verification test")
 	}
 
 	toolReg, err := tools.NewRegistry("")
@@ -110,7 +113,7 @@ import time
 import sys
 import runpy
 
-tracemalloc.start()
+tracemalloc.start(1)
 t0 = time.time()
 
 script_path = sys.argv[1]
@@ -136,7 +139,7 @@ print(f"BENCHMARK_RESULT: peak_mb={peak_mb:.2f} elapsed_sec={elapsed:.2f}", flus
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, py, profilerScript, extractScript, raftPath, tempDir)
+	cmd := exec.CommandContext(ctx, py, profilerScript, extractScript, targetGame, tempDir)
 	cmd.Dir = tempDir
 	out, err := cmd.CombinedOutput()
 	outputStr := string(out)
