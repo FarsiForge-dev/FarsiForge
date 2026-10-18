@@ -33,6 +33,10 @@ except ImportError:
     print("ERROR: UnityPy is not installed. Run: pip install UnityPy")
     sys.exit(2)
 
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+if _script_dir not in sys.path:
+    sys.path.insert(0, _script_dir)
+
 from unity_raw_fields import replace_serialized_strings
 
 # Disable the C boost extension for typetree reading — it uses a different
@@ -173,30 +177,60 @@ def _try_read_object(obj):
         return None
 
 
-def _inject_strings(value, path, candidate_base_ids, translations, pending):
+def _inject_strings(
+    value, path, candidate_base_ids, translations, entries_by_id, pending, stats=None
+):
     """Recursively walk a typetree value, replacing strings whose id matches.
 
-    Returns the (possibly new) value. Appends matched ids to `pending` so the
-    caller can commit them only after save_typetree succeeds.
+    Verifies source text before replacement to reject stale source states.
+    Appends matched ids to `pending` so the caller can commit them only after
+    save_typetree succeeds.
     """
     if isinstance(value, str):
         for base_id in candidate_base_ids:
             full_id = f"{base_id}_{path}"
             if full_id in translations:
+                entry = entries_by_id.get(full_id, {})
+                if entry.get("read_only"):
+                    if stats is not None:
+                        stats["skipped_no_typetree"] = (
+                            stats.get("skipped_no_typetree", 0) + 1
+                        )
+                    return value
+                expected_src = entry.get("source")
+                if expected_src and value.strip() != expected_src.strip():
+                    if stats is not None:
+                        stats["errors"] = stats.get("errors", 0) + 1
+                    print(
+                        f"WARNING: source mismatch for {full_id}: expected {expected_src!r}, found {value!r}"
+                    )
+                    return value
                 pending.append(full_id)
                 return translations[full_id]
         return value
     if isinstance(value, dict):
         return {
             k: _inject_strings(
-                v, f"{path}.{k}", candidate_base_ids, translations, pending
+                v,
+                f"{path}.{k}",
+                candidate_base_ids,
+                translations,
+                entries_by_id,
+                pending,
+                stats,
             )
             for k, v in value.items()
         }
     if isinstance(value, list):
         return [
             _inject_strings(
-                v, f"{path}[{i}]", candidate_base_ids, translations, pending
+                v,
+                f"{path}[{i}]",
+                candidate_base_ids,
+                translations,
+                entries_by_id,
+                pending,
+                stats,
             )
             for i, v in enumerate(value)
         ]
@@ -448,7 +482,7 @@ def main():
             continue
         entry_id = entry.get("id", "")
         entries_by_id[entry_id] = entry
-        translation = entry.get("translation")
+        translation = entry.get("translation") or entry.get("target")
         if translation:
             translations[entry_id] = translation
             # Track file references from entry
@@ -603,32 +637,204 @@ def main():
                         stats["errors"] += 1
                         continue
 
-                    asset_name = getattr(data, "name", "") or ""
-                    matched_text_id = None
+                    asset_name = getattr(data, "m_Name", getattr(data, "name", "")) or ""
+                    # Find matching translation candidates: full match or structured subpaths
+                    matching_entries = {}
                     for bid in candidate_base_ids:
-                        tid = f"{bid}_TextAsset/{asset_name}"
-                        if tid in translations:
-                            matched_text_id = tid
+                        prefix = f"{bid}_TextAsset/{asset_name}"
+                        for tid, val in translations.items():
+                            if tid == prefix or tid.startswith(prefix + "#"):
+                                matching_entries[tid] = (prefix, val)
+
+                    if not matching_entries:
+                        continue
+
+                    # Read current text from TextAsset
+                    raw = getattr(data, "m_Script", getattr(data, "script", getattr(data, "text", None)))
+                    if raw is None:
+                        raw = b""
+                    if isinstance(raw, bytes):
+                        current_text = raw.decode("utf-8", errors="ignore")
+                    else:
+                        current_text = str(raw) if raw else ""
+
+                    # Case A: Exact full-file match
+                    exact_tid = None
+                    for tid, (pfx, _) in matching_entries.items():
+                        if tid == pfx:
+                            exact_tid = tid
                             break
 
-                    if not matched_text_id:
-                        continue
-
-                    translation = translations[matched_text_id]
-                    try:
-                        if hasattr(data, "script"):
-                            data.script = translation.encode("utf-8")
-                        elif hasattr(data, "text"):
-                            data.text = translation
-                        else:
+                    if exact_tid and len(matching_entries) == 1:
+                        entry = entries_by_id.get(exact_tid, {})
+                        if entry.get("read_only"):
                             stats["skipped_no_typetree"] += 1
                             continue
-                        data.save()
-                        matched_ids.add(matched_text_id)
-                        file_has_changes = True
-                    except Exception:
-                        stats["errors"] += 1
+                        expected_src = entry.get("source")
+                        if expected_src and current_text.strip() != expected_src.strip():
+                            print(
+                                f"WARNING: source mismatch for {exact_tid}: expected {expected_src[:30]!r}, found {current_text[:30]!r}"
+                            )
+                            stats["errors"] += 1
+                            continue
+                        new_content = matching_entries[exact_tid][1]
+                        try:
+                            if hasattr(data, "m_Script"):
+                                if isinstance(data.m_Script, bytes):
+                                    data.m_Script = new_content.encode("utf-8")
+                                else:
+                                    data.m_Script = new_content
+                            elif hasattr(data, "script"):
+                                data.script = new_content.encode("utf-8")
+                            elif hasattr(data, "text"):
+                                data.text = new_content
+                            else:
+                                stats["skipped_no_typetree"] += 1
+                                continue
+                            data.save()
+                            matched_ids.add(exact_tid)
+                            file_has_changes = True
+                        except Exception:
+                            stats["errors"] += 1
                         continue
+
+                    # Case B: Structured sub-path entries (JSON / CSV / KV)
+                    json_entries = {}
+                    csv_entries = {}
+                    kv_entries = {}
+                    for tid, (pfx, val) in matching_entries.items():
+                        if "#" in tid:
+                            subpath = tid.split("#", 1)[1]
+                            if subpath.startswith("jpath:"):
+                                subpath = subpath[len("jpath:") :]
+                            entry = entries_by_id.get(tid, {})
+                            if entry.get("read_only"):
+                                continue
+                            if entry.get("source_type") == "textasset-json" or (
+                                subpath.startswith("{")
+                                or "." in subpath
+                                or ("[" in subpath and not subpath.startswith("row["))
+                            ):
+                                json_entries[subpath] = (
+                                    tid,
+                                    val,
+                                    entry.get("source", ""),
+                                )
+                            elif entry.get(
+                                "source_type"
+                            ) == "textasset-csv" or subpath.startswith("row["):
+                                csv_entries[subpath] = (
+                                    tid,
+                                    val,
+                                    entry.get("source", ""),
+                                )
+                            else:
+                                kv_entries[subpath] = (
+                                    tid,
+                                    val,
+                                    entry.get("source", ""),
+                                )
+
+                    updated_text = None
+                    if json_entries:
+                        try:
+                            parsed_json = json.loads(current_text)
+                            for jpath, (tid, trans, exp_src) in json_entries.items():
+                                parts = re.findall(r"([^.\[\]]+|\[\d+\])", jpath)
+                                curr = parsed_json
+                                for p_idx, part in enumerate(parts[:-1]):
+                                    if part.startswith("[") and part.endswith("]"):
+                                        idx = int(part[1:-1])
+                                        curr = curr[idx]
+                                    else:
+                                        curr = curr[part]
+                                last_part = parts[-1]
+                                if last_part.startswith("[") and last_part.endswith("]"):
+                                    idx = int(last_part[1:-1])
+                                    if exp_src and curr[idx].strip() != exp_src.strip():
+                                        continue
+                                    curr[idx] = trans
+                                else:
+                                    if exp_src and curr[last_part].strip() != exp_src.strip():
+                                        continue
+                                    curr[last_part] = trans
+                                matched_ids.add(tid)
+                            updated_text = json.dumps(
+                                parsed_json, ensure_ascii=False, indent=2
+                            )
+                        except Exception:
+                            pass
+
+                    elif csv_entries:
+                        try:
+                            import csv as _csv
+                            import io as _io
+
+                            first_line = (
+                                current_text.splitlines()[0]
+                                if current_text.splitlines()
+                                else ""
+                            )
+                            delimiter = "\t" if "\t" in first_line else ","
+                            lines = current_text.splitlines()
+                            reader = list(_csv.reader(lines, delimiter=delimiter))
+                            for cpath, (tid, trans, exp_src) in csv_entries.items():
+                                m = re.match(r"row\[(\d+)\]\.col\[(\d+)\]", cpath)
+                                if m:
+                                    r_idx, c_idx = int(m.group(1)), int(m.group(2))
+                                    if r_idx < len(reader) and c_idx < len(
+                                        reader[r_idx]
+                                    ):
+                                        if (
+                                            exp_src
+                                            and reader[r_idx][c_idx].strip()
+                                            != exp_src.strip()
+                                        ):
+                                            continue
+                                        reader[r_idx][c_idx] = trans
+                                        matched_ids.add(tid)
+                            out_io = _io.StringIO()
+                            writer = _csv.writer(
+                                out_io, delimiter=delimiter, lineterminator="\n"
+                            )
+                            writer.writerows(reader)
+                            updated_text = out_io.getvalue()
+                        except Exception:
+                            pass
+
+                    elif kv_entries:
+                        try:
+                            lines = current_text.splitlines()
+                            for kpath, (tid, trans, exp_src) in kv_entries.items():
+                                for i, line in enumerate(lines):
+                                    m = re.match(
+                                        r"^(" + re.escape(kpath) + r")\s*([=:])\s*(.*)$",
+                                        line,
+                                    )
+                                    if m:
+                                        sep = m.group(2)
+                                        lines[i] = f"{kpath}{sep} {trans}"
+                                        matched_ids.add(tid)
+                                        break
+                            updated_text = "\n".join(lines)
+                        except Exception:
+                            pass
+
+                    if updated_text is not None:
+                        try:
+                            if hasattr(data, "m_Script"):
+                                if isinstance(data.m_Script, bytes):
+                                    data.m_Script = updated_text.encode("utf-8")
+                                else:
+                                    data.m_Script = updated_text
+                            elif hasattr(data, "script"):
+                                data.script = updated_text.encode("utf-8")
+                            elif hasattr(data, "text"):
+                                data.text = updated_text
+                            data.save()
+                            file_has_changes = True
+                        except Exception:
+                            stats["errors"] += 1
 
                 # --- MonoBehaviour -----------------------------------------
                 elif type_name == "MonoBehaviour":
@@ -715,7 +921,9 @@ def main():
                             "root",
                             candidate_base_ids,
                             translations,
+                            entries_by_id,
                             pending,
+                            stats,
                         )
                         if pending:
                             try:

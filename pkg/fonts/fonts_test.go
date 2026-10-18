@@ -169,3 +169,21 @@ func TestStageFontReplacement_TransactionalSafety(t *testing.T) {
 		t.Fatal("expected traversal attempt to be rejected with error")
 	}
 }
+
+func TestScanGameFonts_UnityRealGame(t *testing.T) {
+	gamePath := `D:\games\Orc Massage\OrcMassage_Data`
+	if _, err := os.Stat(gamePath); err != nil {
+		t.Skip("Orc Massage game data not installed, skipping real game test")
+	}
+	report, err := ScanGameFonts(gamePath, "unity")
+	if err != nil {
+		t.Fatalf("ScanGameFonts failed: %v", err)
+	}
+	t.Logf("Total fonts found: %d", report.TotalFontsFound)
+	for _, f := range report.Items {
+		t.Logf("Font: %s, file: %s, canReplace: %v", f.Family, f.Path, f.CanReplace)
+	}
+	if report.TotalFontsFound < 5 {
+		t.Errorf("Expected at least 5 compiled fonts, got %d", report.TotalFontsFound)
+	}
+}

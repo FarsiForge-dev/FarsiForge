@@ -1,6 +1,7 @@
 package fonts
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -8,6 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"farsiforge/pkg/tools"
 )
 
 // StageFontReplacement stages a custom replacement font under Project.WorkingDir/out/<targetRelPath>.
@@ -18,7 +22,18 @@ func StageFontReplacement(gameRoot, workDir, targetFontRelPath, customFontPath s
 		return nil, fmt.Errorf("all paths must be non-empty")
 	}
 
-	cleanRel := filepath.Clean(filepath.FromSlash(targetFontRelPath))
+	var assetFileRel string
+	var pathIDStr string
+	isCompiledAsset := strings.Contains(targetFontRelPath, "#")
+	if isCompiledAsset {
+		parts := strings.SplitN(targetFontRelPath, "#", 2)
+		assetFileRel = parts[0]
+		pathIDStr = parts[1]
+	} else {
+		assetFileRel = targetFontRelPath
+	}
+
+	cleanRel := filepath.Clean(filepath.FromSlash(assetFileRel))
 	if filepath.IsAbs(cleanRel) || strings.HasPrefix(cleanRel, "..") {
 		return nil, fmt.Errorf("invalid game-relative font path %q", targetFontRelPath)
 	}
@@ -38,16 +53,10 @@ func StageFontReplacement(gameRoot, workDir, targetFontRelPath, customFontPath s
 		return nil, fmt.Errorf("invalid replacement font: %w", err)
 	}
 
-	// Capture original font hash
+	// Capture original font / asset hash
 	origHash, err := hashFile(targetGamePath)
 	if err != nil {
 		return nil, fmt.Errorf("hash original game font: %w", err)
-	}
-
-	// Capture custom font hash
-	customHash, err := hashFile(customFontPath)
-	if err != nil {
-		return nil, fmt.Errorf("hash custom replacement font: %w", err)
 	}
 
 	// Stage under workDir/out/<cleanRel>
@@ -56,17 +65,62 @@ func StageFontReplacement(gameRoot, workDir, targetFontRelPath, customFontPath s
 		return nil, fmt.Errorf("create staging font directory: %w", err)
 	}
 
-	if err := copyFile(customFontPath, stagedPath); err != nil {
-		return nil, fmt.Errorf("stage font file: %w", err)
+	if isCompiledAsset {
+		if err := replaceCompiledUnityFont(targetGamePath, pathIDStr, customFontPath, stagedPath); err != nil {
+			return nil, fmt.Errorf("replace compiled Unity font: %w", err)
+		}
+	} else {
+		if err := copyFile(customFontPath, stagedPath); err != nil {
+			return nil, fmt.Errorf("stage font file: %w", err)
+		}
+	}
+
+	stagedHash, err := hashFile(stagedPath)
+	if err != nil {
+		return nil, fmt.Errorf("hash staged font: %w", err)
 	}
 
 	return &FontReplacementResult{
 		TargetRelPath: filepath.ToSlash(cleanRel),
 		StagedPath:    stagedPath,
 		SourceSHA256:  origHash,
-		TargetSHA256:  customHash,
+		TargetSHA256:  stagedHash,
 		FontFamily:    parsed.Family,
 	}, nil
+}
+
+func replaceCompiledUnityFont(assetPath, pathID, customFontPath, stagedAssetPath string) error {
+	reg, err := tools.NewRegistry("")
+	if err != nil {
+		return err
+	}
+	py := reg.GetPython()
+	if py == "" {
+		return fmt.Errorf("python required")
+	}
+
+	tempDir, err := os.MkdirTemp("", "farsiforge_font_replace_*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tempDir)
+
+	scriptPath, err := tools.WriteScript("inspect_asset.py", tempDir)
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	out, err := tools.RunSilent(ctx, tempDir, py, scriptPath, "--replace-font", assetPath, pathID, customFontPath, stagedAssetPath)
+	if err != nil {
+		return fmt.Errorf("%w: %s", err, out)
+	}
+	if !strings.Contains(out, `"success": true`) {
+		return fmt.Errorf("replace font failed: %s", out)
+	}
+	return nil
 }
 
 // GenerateDiagnosticPreviewString returns a rich Persian test string for font rendering validation.

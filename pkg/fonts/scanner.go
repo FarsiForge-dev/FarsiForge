@@ -1,10 +1,16 @@
 package fonts
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"farsiforge/pkg/tools"
 )
 
 // ScanGameFonts inspects the game installation directory and identifies all direct font files,
@@ -167,6 +173,15 @@ func ScanGameFonts(gameRoot, engine string) (*FontInventoryReport, error) {
 		return nil, fmt.Errorf("walk game directory: %w", err)
 	}
 
+	// For Unity games, scan compiled Font assets inside .assets and .bundle files
+	if strings.ToLower(engine) == "unity" {
+		unityFonts, _ := scanUnityCompiledFonts(absRoot)
+		for _, uf := range unityFonts {
+			report.Items = append(report.Items, uf)
+			report.EngineResources++
+		}
+	}
+
 	report.TotalFontsFound = len(report.Items)
 
 	// Build human-readable diagnostic summary and actionable guidance
@@ -178,8 +193,71 @@ func ScanGameFonts(gameRoot, engine string) (*FontInventoryReport, error) {
 		report.RecommendedAction = "می‌توانید فونت‌های استاندارد مستقیم را با فونت فارسی دلخواه (مانند وزیرمتن) جایگزین کنید."
 	} else {
 		report.DiagnosticSummary = fmt.Sprintf("%d دارایی فونت کامپایل‌شده یا اطلس تصویری شناسایی شد.", report.TotalFontsFound)
-		report.RecommendedAction = "فونت‌های شناسایی‌شده در حال حاضر فقط‌خواندنی هستند زیرا نیازمند ریپک اطلس یا دارایی‌های سریال‌شده موتور می‌باشند."
+		report.RecommendedAction = "فونت‌های شناسایی‌شده در فایل‌های کامپایل‌شده بازی آماده استخراج یا جایگزینی با فونت فارسی هستند."
 	}
 
 	return report, nil
 }
+
+type unityScannedFont struct {
+	Path       string `json:"path"`
+	File       string `json:"file"`
+	PathID     int64  `json:"path_id"`
+	Name       string `json:"name"`
+	SizeBytes  int64  `json:"size_bytes"`
+	Format     string `json:"format"`
+	CanReplace bool   `json:"can_replace"`
+	CanExport  bool   `json:"can_export"`
+}
+
+func scanUnityCompiledFonts(gameRoot string) ([]FontInventoryItem, error) {
+	reg, err := tools.NewRegistry("")
+	if err != nil {
+		return nil, err
+	}
+	py := reg.GetPython()
+	if py == "" {
+		return nil, fmt.Errorf("python required")
+	}
+
+	tempDir, err := os.MkdirTemp("", "farsiforge_fonts_*")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(tempDir)
+
+	scriptPath, err := tools.WriteScript("inspect_asset.py", tempDir)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	out, err := tools.RunSilent(ctx, tempDir, py, scriptPath, "--scan-fonts", gameRoot)
+	if err != nil {
+		return nil, err
+	}
+
+	var parsed []unityScannedFont
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &parsed); err != nil {
+		return nil, err
+	}
+
+	var items []FontInventoryItem
+	for _, f := range parsed {
+		items = append(items, FontInventoryItem{
+			Path:           f.Path,
+			Engine:         "unity",
+			Family:         f.Name,
+			AssetType:      FontAssetEngineResource,
+			DetectedFormat: "Unity Font (" + f.Format + ")",
+			Confidence:     0.95,
+			CanExport:      f.CanExport,
+			CanReplace:     f.CanReplace,
+			FileSize:       f.SizeBytes,
+		})
+	}
+	return items, nil
+}
+

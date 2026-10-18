@@ -64,3 +64,5 @@ export function StageFontReplacement(arg1:string,arg2:string,arg3:string):Promis
 export function UpdateEntryCandidate(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
 
 export function ValidateProject(arg1:string):Promise<Array<core.ValidationError>>;
+ 
+export function InspectGameAsset(arg1:string,arg2:string,arg3:number,arg4:number):Promise<assetbrowser.AssetInspectionResult>;

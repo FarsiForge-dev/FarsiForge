@@ -117,3 +117,7 @@ export function UpdateEntryCandidate(arg1, arg2, arg3, arg4) {
 export function ValidateProject(arg1) {
   return window['go']['main']['App']['ValidateProject'](arg1);
 }
+
+export function InspectGameAsset(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['InspectGameAsset'](arg1, arg2, arg3, arg4);
+}

@@ -108,6 +108,74 @@ export namespace assetbrowser {
 		    return a;
 		}
 	}
+	export class AssetProperty {
+	    path: string;
+	    field_name?: string;
+	    value: string;
+	    category?: string;
+	    can_inject: boolean;
+	    read_only: boolean;
+	    read_only_reason?: string;
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.field_name = source["field_name"];
+	        this.value = source["value"];
+	        this.category = source["category"];
+	        this.can_inject = source["can_inject"];
+	        this.read_only = source["read_only"];
+	        this.read_only_reason = source["read_only_reason"];
+	    }
+	}
+	export class CompiledObjectNode {
+	    path_id: number;
+	    type: string;
+	    name: string;
+	    size_bytes: number;
+	    text_bearing: boolean;
+	    parsing_status: string;
+	    can_inject: boolean;
+	    read_only: boolean;
+	    read_only_reason?: string;
+	    format?: string;
+	    properties?: AssetProperty[];
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path_id = source["path_id"];
+	        this.type = source["type"];
+	        this.name = source["name"];
+	        this.size_bytes = source["size_bytes"];
+	        this.text_bearing = source["text_bearing"];
+	        this.parsing_status = source["parsing_status"];
+	        this.can_inject = source["can_inject"];
+	        this.read_only = source["read_only"];
+	        this.read_only_reason = source["read_only_reason"];
+	        this.format = source["format"];
+	        this.properties = source["properties"];
+	    }
+	}
+	export class AssetInspectionResult {
+	    file_rel_path: string;
+	    total_objects: number;
+	    page: number;
+	    page_size: number;
+	    has_more: boolean;
+	    objects: CompiledObjectNode[];
+	    error?: string;
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.file_rel_path = source["file_rel_path"];
+	        this.total_objects = source["total_objects"];
+	        this.page = source["page"];
+	        this.page_size = source["page_size"];
+	        this.has_more = source["has_more"];
+	        this.objects = source["objects"];
+	        this.error = source["error"];
+	    }
+	}
 
 }
 

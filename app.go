@@ -835,6 +835,21 @@ func (a *App) BrowseGameAssets(gameRoot string) (*assetbrowser.AssetBrowserView,
 	return assetbrowser.BrowseGameAssets(gameRoot, engine)
 }
 
+// InspectGameAsset inspects serialized resources and objects within a single game file or container.
+func (a *App) InspectGameAsset(gameRoot, relPath string, page, pageSize int) (*assetbrowser.AssetInspectionResult, error) {
+	proj, err := core.LoadGameProject(gameRoot)
+	engine := ""
+	if err == nil && proj != nil {
+		engine = proj.Engine
+	}
+	if engine == "" {
+		if info, err := a.DetectEngine(gameRoot); err == nil && info != nil {
+			engine = info.Engine
+		}
+	}
+	return assetbrowser.InspectGameAsset(a.ctx, gameRoot, relPath, engine, page, pageSize, a.toolReg)
+}
+
 // ── helpers ─────────────────────────────────────────────────────────
 
 // fileExists is a local helper (app package) to avoid importing scanner here.

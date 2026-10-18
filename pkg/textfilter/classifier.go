@@ -183,6 +183,11 @@ func ClassifyCandidate(entry core.StringEntry, engine string) CandidateClassific
 
 // detectSemanticCategory inspects path, context, speaker, and text patterns to classify the string.
 func detectSemanticCategory(entry core.StringEntry, src string) string {
+	// 0. Pre-classified structural category from AST / schema extractor
+	if entry.Category != "" && entry.Category != core.CategoryUnclassified {
+		return entry.Category
+	}
+
 	// 1. Explicit Speaker indicates Dialogue
 	if strings.TrimSpace(entry.Speaker) != "" {
 		return core.CategoryDialogue
@@ -272,7 +277,9 @@ func isVerifiedLocalizationFormat(entry core.StringEntry) bool {
 	st := strings.ToLower(entry.SourceType)
 
 	if st == "locres" || st == "fmg" || st == "gxt2" || st == "po" ||
-		st == "translation" || st == "strings" || st == "csv" || st == "json" {
+		st == "translation" || st == "strings" || st == "csv" || st == "json" ||
+		st == "textasset-json" || st == "textasset-csv" || st == "textasset-kv" ||
+		st == "textasset-text" || st == "unity-typetree" || st == "unity-reconstructed" {
 		return true
 	}
 

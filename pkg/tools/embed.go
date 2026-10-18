@@ -39,7 +39,7 @@ func WriteScript(name, destDir string) (string, error) {
 	if err := os.WriteFile(dest, data, 0o644); err != nil {
 		return "", err
 	}
-	if name == "extract.py" || name == "inject.py" {
+	if name == "extract.py" || name == "inject.py" || name == "inspect_asset.py" {
 		helperData, err := scriptsFS.ReadFile("scripts/unity_raw_fields.py")
 		if err != nil {
 			return "", err

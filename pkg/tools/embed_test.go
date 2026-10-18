@@ -7,7 +7,7 @@ import (
 )
 
 func TestWriteUnityScriptIncludesRawFieldHelper(t *testing.T) {
-	for _, script := range []string{"extract.py", "inject.py"} {
+	for _, script := range []string{"extract.py", "inject.py", "inspect_asset.py"} {
 		t.Run(script, func(t *testing.T) {
 			dir := t.TempDir()
 			path, err := WriteScript(script, dir)

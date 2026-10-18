@@ -11,7 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **WinRAR-Style Archive Explorer in Workbench**: Replaced flat string list with a dual-pane WinRAR-like split-view containing an archive/package tree on the left, an archive-aware file table with monospace source typography and RTL Persian columns on the right, and a docked bottom Dialogue Inspector & Editor with quick navigation and copy actions.
 - **Live Unpacking Exploration Feedback**: Display live unpacking container and asset paths in Step 2 during extraction.
 
+- **Engine-Aware Compiled Unity Asset Inspector**:
+  - Implemented real serialized object browsing via `UnityPy` with lazy pagination, exact field paths, object types, and write-back safety indicators in `pkg/tools/scripts/inspect_asset.py` and `pkg/assetbrowser/unity.go`.
+  - Decoupled physical compiled asset explorer tree from translation candidates view in `frontend/src/app/page.tsx`, eliminating false-positive dialogue labelling on raw TextAssets.
+- **Compiled Unity Font Discovery & Safe Replacement**:
+  - Upgraded `pkg/fonts/scanner.go` to inspect compiled `Font` objects (ClassID 128) inside `.assets` files (`resources.assets`, `sharedassets0.assets`), discovering embedded TTF/OTF fonts (`LiberationSans`, `PerfectDOSVGA437`, `NotoSansKR`, `GenYoGothic`) identical to AssetRipper.
+  - Implemented transactional font export and font replacement staging (`inspect_asset.py --replace-font`, `StageFontReplacement`) keeping original game roots byte-for-byte untouched.
+- **Automated Regression Suite (Scenarios A, B, C, D)**:
+  - Added full test coverage in `test/e2e/unity_regression_scenarios_test.go` validating synthetic noisy asset extraction (A), safe staging outside game root with patch build & stale source rejection (B), candidate classification precision/recall (C), and project schema backward compatibility with pagination (D).
+
 ### Fixed
+- **Unity Real-Game Extraction Architecture Overhaul**:
+  - Fixed silent drop of all `TextAsset` objects in `pkg/tools/scripts/extract.py` and `inject.py`: replaced `data.name` and `data.script` with `getattr(data, "m_Name", ...)` and `getattr(data, "m_Script", ...)`, eliminating uncaught `AttributeError` on UnityPy generated classes.
+  - Fixed overly aggressive identifier regex `_PASCAL_RE`: eliminated `^[A-Z][a-zA-Z0-9]*$` which previously misclassified capitalized ordinary English words (`Options`, `Sound`, `Video`, `Thalia`, `Comics`, `Back`) as code variables and discarded them.
+  - Structured TextAsset decomposition: broke JSON and CSV assets into discrete translatable units (`#jpath` and `#row[r].col[c]`) instead of giant multi-kilobyte monoliths.
+  - Verified 100% extraction recall across all 15 game screenshots on real Unity title (`Orc Massage`, 22,634 items extracted).
 - **Critical Unity Python RAM 100% Exhaustion**:
   - Replaced in-memory array accumulation with direct streaming JSON writer to disk.
   - Switched duplicate tracking to 64-bit integer hashes (`seen_hashes`).

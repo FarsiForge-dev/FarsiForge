@@ -50,6 +50,43 @@ type AssetNode struct {
 	SampleEntries  []core.StringEntry`json:"sample_entries,omitempty"`
 }
 
+// AssetProperty describes one text-bearing property or field in a serialized object.
+type AssetProperty struct {
+	Path           string `json:"path"`
+	FieldName      string `json:"field_name,omitempty"`
+	Value          string `json:"value"`
+	Category       string `json:"category,omitempty"`
+	CanInject      bool   `json:"can_inject"`
+	ReadOnly       bool   `json:"read_only"`
+	ReadOnlyReason string `json:"read_only_reason,omitempty"`
+}
+
+// CompiledObjectNode represents a serialized object inside a compiled asset container.
+type CompiledObjectNode struct {
+	PathID         int64           `json:"path_id"`
+	Type           string          `json:"type"`
+	Name           string          `json:"name"`
+	SizeBytes      int64           `json:"size_bytes"`
+	TextBearing    bool            `json:"text_bearing"`
+	ParsingStatus  ParsingStatus   `json:"parsing_status"`
+	CanInject      bool            `json:"can_inject"`
+	ReadOnly       bool            `json:"read_only"`
+	ReadOnlyReason string          `json:"read_only_reason,omitempty"`
+	Format         string          `json:"format,omitempty"`
+	Properties     []AssetProperty `json:"properties,omitempty"`
+}
+
+// AssetInspectionResult holds paginated serialized objects for a single compiled asset file.
+type AssetInspectionResult struct {
+	FileRelPath  string               `json:"file_rel_path"`
+	TotalObjects int                  `json:"total_objects"`
+	Page         int                  `json:"page"`
+	PageSize     int                  `json:"page_size"`
+	HasMore      bool                 `json:"has_more"`
+	Objects      []CompiledObjectNode `json:"objects"`
+	Error        string               `json:"error,omitempty"`
+}
+
 // AssetBrowserView represents the complete asset tree and summary metrics for a game directory.
 type AssetBrowserView struct {
 	GameRoot             string                  `json:"game_root"`
@@ -61,3 +98,4 @@ type AssetBrowserView struct {
 	RootNodes            []*AssetNode            `json:"root_nodes"`
 	Diagnostics          scanner.ScanDiagnostics `json:"diagnostics"`
 }
+

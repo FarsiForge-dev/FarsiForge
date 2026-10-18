@@ -1,12 +1,14 @@
 package assetbrowser
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"farsiforge/pkg/core"
 	"farsiforge/pkg/extract"
 	"farsiforge/pkg/scanner"
 )
@@ -351,9 +353,8 @@ func classifyUnityFile(node *AssetNode, fullPath, slashRel, ext string) {
 		node.Format = strings.TrimPrefix(ext, ".")
 		node.ParsingStatus = StatusParsed
 		node.CanExtract = true
-		node.CanInject = false
-		node.ReadOnly = true
-		node.ReadOnlyReason = "فایل serialized assets یونیتی؛ نیازمند تطبیق Typetree جهت تزریق امن"
+		node.CanInject = true
+		node.ReadOnly = false
 		node.Metadata["archive_type"] = "Unity Serialized AssetBundle"
 	case ".resS", ".resource":
 		node.Type = NodeAssetFile
@@ -365,6 +366,32 @@ func classifyUnityFile(node *AssetNode, fullPath, slashRel, ext string) {
 		node.ReadOnlyReason = "جریان داده باینری بزرگ یونیتی (Raw Stream)"
 	default:
 		classifyGenericFile(node, fullPath, slashRel, ext)
+	}
+}
+
+// InspectGameAsset inspects serialized resources and objects within a single game file or container.
+func InspectGameAsset(ctx context.Context, gameRoot, relPath, engine string, page, pageSize int, reg core.ToolRegistry) (*AssetInspectionResult, error) {
+	normEngine := strings.ToLower(strings.TrimSpace(engine))
+	switch normEngine {
+	case "unity":
+		return InspectUnityAsset(ctx, gameRoot, relPath, page, pageSize, reg)
+	default:
+		cleanRel := filepath.Clean(filepath.ToSlash(relPath))
+		fullPath := filepath.Join(gameRoot, filepath.FromSlash(cleanRel))
+		fi, err := os.Stat(fullPath)
+		if err != nil || fi.IsDir() {
+			return nil, fmt.Errorf("file not found: %s", relPath)
+		}
+		ext := strings.ToLower(filepath.Ext(cleanRel))
+		return &AssetInspectionResult{
+			FileRelPath:  cleanRel,
+			TotalObjects: 0,
+			Page:         1,
+			PageSize:     pageSize,
+			HasMore:      false,
+			Objects:      nil,
+			Error:        fmt.Sprintf("Engine %q does not have a compiled object inspector for %s files", engine, ext),
+		}, nil
 	}
 }
 

@@ -17,9 +17,9 @@
 
 # Test data & tools (too large for git)
 /Tools/
-silent hill/
-three-game/
-two-game/
+/text-UI-DIALOG-ITEM-game-orc-massge/
+test_work/
+test_fixture.assets
 
 # OS
 Thumbs.db

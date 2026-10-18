@@ -30,6 +30,10 @@ except ImportError:
     print("ERROR: UnityPy is not installed. Run: pip install UnityPy")
     sys.exit(2)
 
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+if _script_dir not in sys.path:
+    sys.path.insert(0, _script_dir)
+
 from unity_raw_fields import scan_serialized_strings
 
 # Disable the C boost extension for typetree reading — it uses a different
@@ -53,19 +57,64 @@ _PATH_RE = re.compile(r"^[^\s]*[\\/][^\s]*\.[A-Za-z0-9]{1,8}$")
 _NAMESPACE_RE = re.compile(r"^(UnityEngine|System|TMPro|UnityEditor)\.")
 _NUM_RE = re.compile(r"^[+-]?\d+(\.\d+)?$")
 _REPEAT_RE = re.compile(r"^(.)\1+$")
+_VERSION_RE = re.compile(r"^v?\d+\.\d+(\.\d+)?[a-zA-Z0-9_\-\.]*$", re.IGNORECASE)
+_HEX_RUN_RE = re.compile(r"^[0-9a-fA-F]{32,}$")
+_ASSET_PATH_RE = re.compile(
+    r"^[a-zA-Z0-9_\-/\\]+\.(prefab|asset|mat|shader|dll|exe|png|jpg|jpeg|tga|dds|wav|ogg|mp3|unity3d|bytes|txt|json)$",
+    re.IGNORECASE,
+)
 
 # Single-token identifier patterns (code identifiers, not human text)
-_PASCAL_RE = re.compile(r"^[A-Z][a-zA-Z0-9]*$")
-_CAMEL_RE = re.compile(r"^[a-z][a-zA-Z0-9]*$")
-_SNAKE_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
+_PASCAL_RE = re.compile(r"^[A-Z][a-z0-9]+[A-Z][a-zA-Z0-9]*$")
+_CAMEL_RE = re.compile(r"^[a-z]+[A-Z][a-zA-Z0-9]*$")
+_SNAKE_RE = re.compile(r"^[a-zA-Z0-9]+_[a-zA-Z0-9_]+$")
 
 # Field names that indicate human-readable text content
 _TEXT_FIELD_RE = re.compile(
-    r"(text|label|title|name|description|message|tooltip|string|dialogue|subtitle|content)",
+    r"(text|label|title|description|message|tooltip|string|dialogue|subtitle|content|prompt|caption|story|quest|lore|ui|item|comm|name|speech|talk|body|cell)",
     re.IGNORECASE,
 )
 
 _MNAME_RE = re.compile(r"^m_Name$", re.IGNORECASE)
+
+_EXCLUDED_FIELDS = {
+    "m_name", "m_tagstring", "m_script", "m_version", "m_objecthideflags",
+    "m_editorhideflags", "m_font", "m_material", "m_texture", "m_shader",
+    "m_shaderkeywords", "m_guid", "guid", "m_path", "path", "m_fileid",
+    "charactersequence", "m_charactersequence", "m_rootorder", "m_localscale",
+    "m_localposition", "m_localrotation", "m_anchormin", "m_anchormax",
+    "m_anchoredposition", "m_sizeoffset", "m_pivot", "m_layermask", "m_lightmapindex",
+}
+
+_EXCLUDED_SUBSTRINGS = (
+    "m_creationsettings",
+    "charactersettings",
+    "charactersequence",
+)
+
+_COMMON_UNITY_CLASSES = {
+    "gameobject", "transform", "recttransform", "canvas", "camera", "light",
+    "audiosource", "monobehaviour", "eventsystem", "standaloneinputmodule",
+    "graphicraycaster", "canvasscaler", "boxcollider", "meshrenderer", "meshfilter",
+    "rigidbody", "rigidbody2d", "boxcollider2d", "circlecollider2d",
+}
+
+_STANDARD_SHORT_UI = {
+    "ok", "yes", "no", "up", "go", "hp", "mp", "xp", "sp", "lv", "on", "in", "to", "at", "by", "or", "ui"
+}
+
+_STANDARD_UI_KEYWORDS = {
+    "ok", "yes", "no", "cancel", "apply", "save", "load", "back", "exit", "quit",
+    "start", "continue", "retry", "play", "pause", "resume", "options", "settings",
+    "audio", "video", "graphics", "controls", "gameplay", "language", "help",
+    "credits", "inventory", "map", "quest", "quests", "items", "skills", "stats",
+    "profile", "delete", "edit", "new", "next", "previous", "accept", "decline",
+    "confirm", "close", "open", "buy", "sell", "equip", "unequip", "use", "discard",
+    "craft", "upgrade", "select", "clear", "reset", "mute", "unmute", "default",
+    "fullscreen", "windowed", "vsync", "brightness", "gamma", "volume", "master",
+    "music", "sfx", "voice", "difficulty", "easy", "normal", "hard", "nightmare",
+    "new game", "load game", "save game", "start game", "main menu", "restart", "abandon",
+}
 
 
 def is_noise(s: str) -> bool:
@@ -75,17 +124,26 @@ def is_noise(s: str) -> bool:
     s = s.strip()
     if len(s) < 2:
         return True
+    lower = s.lower()
+    if lower in _STANDARD_SHORT_UI or lower in _STANDARD_UI_KEYWORDS:
+        return False
     if _NUM_RE.match(s):
+        return True
+    if _VERSION_RE.match(s):
         return True
     if _URL_RE.match(s):
         return True
-    if _PATH_RE.match(s):
+    if _PATH_RE.match(s) or _ASSET_PATH_RE.match(s):
         return True
-    if _GUID_RE.match(s):
+    if _GUID_RE.match(s) or _HEX_RUN_RE.match(s):
         return True
     if _NAMESPACE_RE.match(s):
         return True
     if _REPEAT_RE.match(s):
+        return True
+    if lower in _COMMON_UNITY_CLASSES:
+        return True
+    if not any(c.isalpha() for c in s):
         return True
     return False
 
@@ -100,17 +158,68 @@ def is_code_identifier(s: str) -> bool:
     return False
 
 
-def should_extract_string(s: str, field_name: str = "") -> bool:
+def should_extract_string(s: str, field_name: str = "", path: str = "") -> bool:
     """Decide whether a string should be extracted as translatable."""
     if is_noise(s):
         return False
+    path_lower = path.lower() if path else ""
+    field_lower = field_name.lower() if field_name else ""
+    trimmed_lower = s.strip().lower()
+
+    if field_lower in _EXCLUDED_FIELDS:
+        return False
+    if any(sub in path_lower for sub in _EXCLUDED_SUBSTRINGS):
+        return False
+    if path_lower.endswith(".m_name") or path_lower == "root.m_name":
+        return False
+
+    # Standard UI vocabulary words are always legitimate translatable strings!
+    if trimmed_lower in _STANDARD_UI_KEYWORDS or trimmed_lower in _STANDARD_SHORT_UI:
+        return True
+
     if is_code_identifier(s):
         if field_name and _MNAME_RE.match(field_name):
             return False
         if field_name and _TEXT_FIELD_RE.search(field_name):
             return True
         return False
+
     return True
+
+
+def _classify_semantic(text: str, path: str, context: str) -> str:
+    """Classify semantic category based on structural context and text traits."""
+    meta = f"{path} {context}".lower()
+    text_lower = text.lower().strip()
+
+    # 1. Dialogue evidence
+    if any(kw in meta for kw in ("dialogue", "dialog", "subtitle", "speech", "talk", "voice", "chat", "npc", "conversation", "manga", "cutscene", "story", "scenario", "actor", "timeline")):
+        return "dialogue"
+    has_pronoun = any(p in text_lower for p in ("you ", "you're", "i ", "i'm", "we ", "we're", "my ", "your ", "don't", "can't", "please"))
+    has_punct = any(c in text for c in ("?", "!", '"', "“", "”", "…"))
+    words = len(text.split())
+    if has_pronoun and has_punct and words >= 3:
+        return "dialogue"
+
+    # 2. UI evidence
+    if any(kw in meta for kw in ("menu", "ui", "btn", "button", "title", "label", "hud", "prompt", "window", "tooltip", "popup", "m_text")):
+        return "ui"
+    if text_lower in _STANDARD_UI_KEYWORDS or text_lower in _STANDARD_SHORT_UI:
+        return "ui"
+
+    # 3. Item evidence
+    if any(kw in meta for kw in ("item", "weapon", "armor", "inventory", "gear", "skill", "spell", "potion", "perk", "artifact")):
+        return "item"
+
+    # 4. Quest evidence
+    if any(kw in meta for kw in ("quest", "mission", "objective", "task", "journal", "bounty", "log")):
+        return "quest"
+
+    # 5. System evidence
+    if any(kw in meta for kw in ("system", "network", "server", "error", "warning", "notice", "notification")):
+        return "system"
+
+    return "unclassified"
 
 
 # --- Data dir discovery & candidate filtering --------------------------------
@@ -268,7 +377,7 @@ def find_candidate_asset_files(data_dir: str) -> List[Tuple[str, str]]:
 
 # --- Typetree / object walking ----------------------------------------------
 
-def _walk_value(value, path, emit, file_name, path_id, depth=0, max_depth=10):
+def _walk_value(value, path, emit, file_name, path_id, depth=0, max_depth=10, source_type="unity-typetree"):
     """Recursively walk a parsed value, emitting string entries with recursion guards."""
     if depth > max_depth:
         return
@@ -280,17 +389,29 @@ def _walk_value(value, path, emit, file_name, path_id, depth=0, max_depth=10):
         elif "/" in path:
             field_name = path.rsplit("/", 1)[-1]
         field_name = re.sub(r"\[\d+\]$", "", field_name)
-        if should_extract_string(value, field_name):
-            emit(file_name, path_id, path, value, "MonoBehaviour")
+        if should_extract_string(value, field_name, path):
+            cat = _classify_semantic(value, path, "MonoBehaviour")
+            emit(
+                file_name,
+                path_id,
+                path,
+                value,
+                "MonoBehaviour",
+                category=cat,
+                candidate_class="high-confidence",
+                confidence=0.90,
+                read_only=False,
+                source_type=source_type,
+            )
     elif isinstance(value, dict):
         for k, v in value.items():
             if not isinstance(k, str) or k.startswith("_"):
                 continue
-            _walk_value(v, f"{path}.{k}", emit, file_name, path_id, depth + 1, max_depth)
+            _walk_value(v, f"{path}.{k}", emit, file_name, path_id, depth + 1, max_depth, source_type)
     elif isinstance(value, list):
         # Cap list iteration to avoid memory thrashing on massive numeric vertex/geometry buffers
         for i, v in enumerate(value[:250]):
-            _walk_value(v, f"{path}[{i}]", emit, file_name, path_id, depth + 1, max_depth)
+            _walk_value(v, f"{path}[{i}]", emit, file_name, path_id, depth + 1, max_depth, source_type)
     elif value is not None and not isinstance(value, (int, float, bool, bytes)):
         try:
             attrs = vars(value)
@@ -299,7 +420,7 @@ def _walk_value(value, path, emit, file_name, path_id, depth=0, max_depth=10):
         for k, v in attrs.items():
             if k.startswith("_"):
                 continue
-            _walk_value(v, f"{path}.{k}", emit, file_name, path_id, depth + 1, max_depth)
+            _walk_value(v, f"{path}.{k}", emit, file_name, path_id, depth + 1, max_depth, source_type)
 
 
 def _try_read_typetree(obj) -> Optional[dict]:
@@ -506,6 +627,175 @@ def _read_with_reconstructed_nodes(obj, node) -> Optional[dict]:
         return None
 
 
+def _extract_text_asset(data, file_name: str, path_id: int, emit, stats):
+    asset_name = getattr(data, "m_Name", getattr(data, "name", "TextAsset")) or "TextAsset"
+    raw = getattr(data, "m_Script", getattr(data, "script", getattr(data, "text", None)))
+    if raw is None:
+        raw = b""
+
+    # Detect binary or non-UTF-8 payload
+    is_binary = False
+    if isinstance(raw, (bytes, bytearray, memoryview)):
+        is_binary = b"\x00" in raw[:1024]
+        text = bytes(raw).decode("utf-8", errors="ignore")
+    else:
+        text = str(raw) if raw else ""
+        is_binary = "\x00" in text[:1024] or any(0xD800 <= ord(c) <= 0xDFFF for c in text[:100])
+
+    if is_binary:
+        stats["errors"] += 1
+        emit(
+            file_name,
+            path_id,
+            f"TextAsset/{asset_name}",
+            "<binary TextAsset>",
+            "TextAsset/Binary",
+            category="unclassified",
+            candidate_class="raw-heuristic",
+            confidence=0.10,
+            read_only=True,
+            read_only_reason="Binary payload in TextAsset; unparsed and read-only",
+            source_type="textasset-binary",
+        )
+        return
+
+    text = text.strip()
+    if not text:
+        return
+
+    # Check 1: Structured JSON TextAsset
+    if text.startswith(("{", "[")) and text.endswith(("}", "]")):
+        try:
+            parsed = json.loads(text)
+            extracted_count = 0
+
+            def _walk_json(val, jpath):
+                nonlocal extracted_count
+                if isinstance(val, str):
+                    fname = jpath.rsplit(".", 1)[-1] if "." in jpath else jpath
+                    if should_extract_string(val, fname, jpath):
+                        cat = _classify_semantic(val, jpath, "TextAsset/JSON")
+                        emit(
+                            file_name,
+                            path_id,
+                            f"TextAsset/{asset_name}#jpath:{jpath}",
+                            val,
+                            "TextAsset/JSON",
+                            category=cat,
+                            candidate_class="high-confidence",
+                            confidence=0.95,
+                            read_only=False,
+                            source_type="textasset-json",
+                        )
+                        extracted_count += 1
+                elif isinstance(val, dict):
+                    for k, v in val.items():
+                        if isinstance(k, str):
+                            _walk_json(v, f"{jpath}.{k}" if jpath else k)
+                elif isinstance(val, list):
+                    for idx, item in enumerate(val):
+                        _walk_json(item, f"{jpath}[{idx}]")
+
+            _walk_json(parsed, "")
+            if extracted_count > 0:
+                stats["text_assets"] += 1
+                return
+        except Exception:
+            pass
+
+    # Check 2: Structured CSV / TSV TextAsset
+    lines = text.splitlines()
+    if len(lines) >= 2:
+        delimiter = "\t" if "\t" in lines[0] else ("," if "," in lines[0] else None)
+        if delimiter:
+            try:
+                import csv as _csv
+                reader = list(_csv.reader(lines, delimiter=delimiter))
+                if len(reader) >= 2 and len(reader[0]) >= 2:
+                    header = reader[0]
+                    text_cols = []
+                    for c_idx, h in enumerate(header):
+                        h_low = h.lower()
+                        if any(kw in h_low for kw in ("text", "desc", "english", "en", "source", "dialogue", "name", "value", "trans", "msg", "content", "string", "label", "caption", "title", "ui", "sub", "line", "speech", "talk", "body", "item")):
+                            text_cols.append(c_idx)
+                    if not text_cols:
+                        text_cols = list(range(1, len(header)))
+
+                    extracted_count = 0
+                    for r_idx in range(1, len(reader)):
+                        row = reader[r_idx]
+                        for c_idx in text_cols:
+                            if c_idx < len(row):
+                                cell_val = row[c_idx]
+                                col_name = header[c_idx] if c_idx < len(header) else str(c_idx)
+                                if should_extract_string(cell_val, col_name, f"{asset_name}#{col_name}"):
+                                    cat = _classify_semantic(cell_val, f"{asset_name} {col_name}", "TextAsset/CSV")
+                                    emit(
+                                        file_name,
+                                        path_id,
+                                        f"TextAsset/{asset_name}#row[{r_idx}].col[{c_idx}]",
+                                        cell_val,
+                                        "TextAsset/CSV",
+                                        category=cat,
+                                        candidate_class="high-confidence",
+                                        confidence=0.95,
+                                        read_only=False,
+                                        source_type="textasset-csv",
+                                    )
+                                    extracted_count += 1
+                    if extracted_count > 0:
+                        stats["text_assets"] += 1
+                        return
+            except Exception:
+                pass
+
+    # Check 3: Line-based Key-Value (.ini, .strings, .txt)
+    kv_pattern = re.compile(r"^([a-zA-Z0-9_\-\.]+)\s*[=:]\s*(.+)$")
+    matched_kv = []
+    for line in lines:
+        m = kv_pattern.match(line.strip())
+        if m:
+            matched_kv.append(m.groups())
+    if len(matched_kv) >= 3 and len(matched_kv) >= len(lines) * 0.4:
+        extracted_count = 0
+        for k, v in matched_kv:
+            if should_extract_string(v, k, f"kv_{k}"):
+                cat = _classify_semantic(v, k, "TextAsset/KeyValue")
+                emit(
+                    file_name,
+                    path_id,
+                    f"TextAsset/{asset_name}#{k}",
+                    v,
+                    "TextAsset/KeyValue",
+                    category=cat,
+                    candidate_class="high-confidence",
+                    confidence=0.95,
+                    read_only=False,
+                    source_type="textasset-kv",
+                )
+                extracted_count += 1
+        if extracted_count > 0:
+            stats["text_assets"] += 1
+            return
+
+    # Check 4: Plain Text / Narrative
+    if should_extract_string(text, asset_name, f"TextAsset/{asset_name}"):
+        cat = _classify_semantic(text, asset_name, "TextAsset")
+        emit(
+            file_name,
+            path_id,
+            f"TextAsset/{asset_name}",
+            text,
+            "TextAsset",
+            category=cat,
+            candidate_class="high-confidence",
+            confidence=0.80,
+            read_only=False,
+            source_type="textasset-plain",
+        )
+        stats["text_assets"] += 1
+
+
 def _raw_scan_mb(obj, emit, file_name, path_id):
     byte_size = getattr(obj, "byte_size", 0)
     if byte_size > 2 * 1024 * 1024:
@@ -520,12 +810,19 @@ def _raw_scan_mb(obj, emit, file_name, path_id):
         return
 
     for offset, text in scan_serialized_strings(raw, endian):
+        cat = _classify_semantic(text, f"rawstr_{offset:08x}", "MonoBehaviour raw")
         emit(
             file_name,
             path_id,
             f"rawstr_{offset:08x}",
             text,
             "MonoBehaviour raw serialized string (typetree unavailable)",
+            category=cat,
+            candidate_class="raw-heuristic",
+            confidence=0.50,
+            read_only=True,
+            read_only_reason="Raw byte scan without verified AST schema; read-only",
+            source_type="monobehaviour-bytes",
         )
 
 
@@ -601,7 +898,19 @@ def main():
         "errors": 0,
     }
 
-    def emit(file_name, path_id, path, source, context):
+    def emit(
+        file_name,
+        path_id,
+        path,
+        source,
+        context,
+        category="unclassified",
+        candidate_class="high-confidence",
+        confidence=0.80,
+        read_only=False,
+        read_only_reason="",
+        source_type="unity-typetree",
+    ):
         nonlocal is_first_entry, extracted_count
         key_hash = hash((file_name, path_id, path))
         if key_hash in seen_hashes:
@@ -614,6 +923,12 @@ def main():
             "path": path,
             "context": context,
             "status": "untranslated",
+            "category": category,
+            "candidate_class": candidate_class,
+            "confidence": confidence,
+            "read_only": read_only,
+            "read_only_reason": read_only_reason,
+            "source_type": source_type,
         }
         prefix = "  " if is_first_entry else ",\n  "
         out_f.write(prefix + json.dumps(entry, ensure_ascii=False))
@@ -672,18 +987,7 @@ def main():
                     except Exception:
                         stats["errors"] += 1
                         continue
-                    raw = getattr(data, "script", None)
-                    if raw is None:
-                        raw = getattr(data, "text", None) or ""
-                    if isinstance(raw, bytes):
-                        text = raw.decode("utf-8", errors="ignore")
-                    else:
-                        text = str(raw) if raw else ""
-                    text = text.strip()
-                    if not text:
-                        continue
-                    stats["text_assets"] += 1
-                    emit(file_name, path_id, f"TextAsset/{data.name}", text, "TextAsset")
+                    _extract_text_asset(data, file_name, path_id, emit, stats)
 
                 elif type_name == "MonoBehaviour":
                     stats["mono_behaviours"] += 1
@@ -700,14 +1004,14 @@ def main():
                     if nodes:
                         tree = _try_read_typetree(obj)
                         if tree is not None:
-                            _walk_value(tree, "root", emit, file_name, path_id)
+                            _walk_value(tree, "root", emit, file_name, path_id, source_type="unity-typetree")
                             handled = True
 
                     # Strategy 2: read_typetree direct
                     if not handled:
                         tree = _try_read_typetree(obj)
                         if isinstance(tree, dict):
-                            _walk_value(tree, "root", emit, file_name, path_id)
+                            _walk_value(tree, "root", emit, file_name, path_id, source_type="unity-typetree")
                             handled = True
 
                     # Strategy 3: TypeTreeGenerator reconstruction
@@ -733,6 +1037,7 @@ def main():
                                             emit,
                                             file_name,
                                             path_id,
+                                            source_type="unity-reconstructed",
                                         )
                                         handled = True
                                         used_reconstruction = True
@@ -741,7 +1046,7 @@ def main():
                     if not handled:
                         robj = _try_read_object(obj)
                         if robj is not None:
-                            _walk_value(robj, "root", emit, file_name, path_id)
+                            _walk_value(robj, "root", emit, file_name, path_id, source_type="unity-typetree")
                             handled = True
 
                     # Strategy 5: raw serialized string scan
