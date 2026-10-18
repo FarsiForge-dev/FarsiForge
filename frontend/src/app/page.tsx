@@ -1104,10 +1104,39 @@ export default function FarsiForgeDashboard() {
             <CardHeader className="border-b border-zinc-800/50 pb-6 pt-8">
               <div className="flex justify-between items-center">
                 <CardTitle className="text-2xl font-bold">پایپ‌لاین بومی‌سازی</CardTitle>
-                <div className="flex gap-2">
-                  <Badge variant={currentStep === "detect" ? "default" : "outline"}>شناسایی</Badge>
+                <div className="flex items-center gap-2">
+                  {currentStep !== "detect" && !isProcessing && (
+                    <Button
+                      onClick={() => {
+                        if (currentStep === "extract") setCurrentStep("detect");
+                        else if (currentStep === "translate") setCurrentStep("extract");
+                        else if (currentStep === "inject") setCurrentStep("translate");
+                        else if (currentStep === "patch") setCurrentStep("inject");
+                      }}
+                      variant="ghost"
+                      size="sm"
+                      className="text-zinc-400 hover:text-white flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-zinc-800/80 hover:bg-zinc-800/60 ml-2"
+                      title="بازگشت به مرحله قبلی"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span className="text-xs">بازگشت</span>
+                    </Button>
+                  )}
+                  <Badge 
+                    variant={currentStep === "detect" ? "default" : "outline"} 
+                    className={currentStep !== "detect" && !isProcessing ? "cursor-pointer hover:border-zinc-500 transition-colors" : ""}
+                    onClick={() => !isProcessing && currentStep !== "detect" && setCurrentStep("detect")}
+                  >
+                    شناسایی
+                  </Badge>
                   <ArrowRight className="w-4 h-4 text-zinc-600 mt-0.5" />
-                  <Badge variant={currentStep === "extract" ? "default" : "outline"}>استخراج</Badge>
+                  <Badge 
+                    variant={currentStep === "extract" ? "default" : "outline"}
+                    className={currentStep === "translate" && !isProcessing ? "cursor-pointer hover:border-zinc-500 transition-colors" : ""}
+                    onClick={() => !isProcessing && currentStep === "translate" && setCurrentStep("extract")}
+                  >
+                    استخراج
+                  </Badge>
                   <ArrowRight className="w-4 h-4 text-zinc-600 mt-0.5" />
                   <Badge variant={currentStep === "inject" ? "default" : "outline"}>تزریق</Badge>
                 </div>
@@ -1211,9 +1240,25 @@ export default function FarsiForgeDashboard() {
                           </div>
                         </div>
                       ) : (
-                        <Button onClick={() => handleNextStep("translate")} disabled={isDetectionOnly} size="lg" className="w-full text-lg h-14 bg-purple-600 hover:bg-purple-700 shadow-[0_0_20px_rgba(168,85,247,0.3)] transition-all">
-                          {isDetectionOnly ? "استخراج پشتیبانی نمی‌شود" : "شروع استخراج"}
-                        </Button>
+                        <div className="flex flex-col gap-3 w-full">
+                          <Button 
+                            onClick={() => handleNextStep("translate")} 
+                            disabled={isDetectionOnly} 
+                            size="lg" 
+                            className="w-full text-lg h-14 bg-purple-600 hover:bg-purple-700 shadow-[0_0_20px_rgba(168,85,247,0.3)] transition-all font-semibold"
+                          >
+                            {isDetectionOnly ? "استخراج پشتیبانی نمی‌شود" : "شروع استخراج"}
+                          </Button>
+                          <Button 
+                            onClick={() => setCurrentStep("detect")} 
+                            variant="outline" 
+                            size="default"
+                            className="w-full h-11 border-zinc-700/80 text-zinc-300 hover:text-white hover:bg-zinc-800/80 flex items-center justify-center gap-2 transition-colors"
+                          >
+                            <RotateCcw className="w-4 h-4 text-zinc-400" />
+                            <span>بازگشت به انتخاب بازی و شناسایی</span>
+                          </Button>
+                        </div>
                       )}
                     </div>
                   </motion.div>
@@ -2264,9 +2309,20 @@ export default function FarsiForgeDashboard() {
                           </div>
                         </div>
                       ) : (
-                        <Button onClick={() => handleNextStep("patch")} size="lg" className="w-full text-lg h-14 bg-emerald-600 hover:bg-emerald-700 shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-all">
-                          شروع تزریق به بازی
-                        </Button>
+                        <div className="flex flex-col gap-3 w-full">
+                          <Button onClick={() => handleNextStep("patch")} size="lg" className="w-full text-lg h-14 bg-emerald-600 hover:bg-emerald-700 shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-all font-semibold">
+                            شروع تزریق به بازی
+                          </Button>
+                          <Button 
+                            onClick={() => setCurrentStep("translate")} 
+                            variant="outline" 
+                            size="default"
+                            className="w-full h-11 border-zinc-700/80 text-zinc-300 hover:text-white hover:bg-zinc-800/80 flex items-center justify-center gap-2 transition-colors"
+                          >
+                            <RotateCcw className="w-4 h-4 text-zinc-400" />
+                            <span>بازگشت به میز کار ترجمه</span>
+                          </Button>
+                        </div>
                       )}
                     </div>
                   </motion.div>
@@ -2304,9 +2360,20 @@ export default function FarsiForgeDashboard() {
                           </div>
                         </div>
                       ) : (
-                        <Button onClick={() => handleNextStep("success")} size="lg" className="w-full text-lg h-14 bg-orange-600 hover:bg-orange-700 shadow-[0_0_20px_rgba(249,115,22,0.3)] transition-all">
-                          ساخت پچ
-                        </Button>
+                        <div className="flex flex-col gap-3 w-full">
+                          <Button onClick={() => handleNextStep("success")} size="lg" className="w-full text-lg h-14 bg-orange-600 hover:bg-orange-700 shadow-[0_0_20px_rgba(249,115,22,0.3)] transition-all font-semibold">
+                            ساخت پچ
+                          </Button>
+                          <Button 
+                            onClick={() => setCurrentStep("inject")} 
+                            variant="outline" 
+                            size="default"
+                            className="w-full h-11 border-zinc-700/80 text-zinc-300 hover:text-white hover:bg-zinc-800/80 flex items-center justify-center gap-2 transition-colors"
+                          >
+                            <RotateCcw className="w-4 h-4 text-zinc-400" />
+                            <span>بازگشت به مرحله تزریق</span>
+                          </Button>
+                        </div>
                       )}
                     </div>
                   </motion.div>
