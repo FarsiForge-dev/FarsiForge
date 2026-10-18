@@ -316,6 +316,9 @@ func TestCLIExtractEmptyUnity(t *testing.T) {
 
 	out, _, err := runCLI(t, "-dir", dir, "-action", "extract")
 	if err != nil {
+		if strings.Contains(string(out), "UnityPy Python package is not installed") {
+			t.Skip("UnityPy is not installed on test runner; skipping TestCLIExtractEmptyUnity")
+		}
 		t.Fatalf("CLI failed: %v\nOutput:\n%s", err, out)
 	}
 	outStr := string(out)

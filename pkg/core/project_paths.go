@@ -122,9 +122,19 @@ func canonicalGameRoot(gameRoot string) (string, error) {
 }
 
 func samePath(a, b string) bool {
-	a, b = filepath.Clean(a), filepath.Clean(b)
+	aClean, bClean := filepath.Clean(a), filepath.Clean(b)
 	if runtime.GOOS == "windows" {
-		a, b = strings.ToLower(a), strings.ToLower(b)
+		if strings.EqualFold(aClean, bClean) {
+			return true
+		}
+	} else if aClean == bClean {
+		return true
 	}
-	return a == b
+
+	fiA, errA := os.Stat(a)
+	fiB, errB := os.Stat(b)
+	if errA == nil && errB == nil {
+		return os.SameFile(fiA, fiB)
+	}
+	return false
 }

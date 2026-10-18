@@ -30,6 +30,14 @@ jobs:
         with:
           go-version: '1.26.0'
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: pip install UnityPy
+
       - name: Build C# Patcher
         run: pwsh -File patcher/build.ps1
 
@@ -88,6 +96,14 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.26.0'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: pip install UnityPy
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

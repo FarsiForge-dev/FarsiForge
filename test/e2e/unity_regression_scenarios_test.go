@@ -401,6 +401,9 @@ func TestScenarioD_BackwardCompatibilityAndPerformance(t *testing.T) {
 	toolReg, _ := tools.NewRegistry("")
 	p1, err := assetbrowser.InspectGameAsset(context.Background(), tempDir, "test.assets", "unity", 1, 50, toolReg)
 	if err != nil {
+		if strings.Contains(err.Error(), "UnityPy is not installed") {
+			t.Skip("UnityPy is not installed on test runner; skipping InspectGameAsset check")
+		}
 		t.Fatalf("InspectGameAsset failed: %v", err)
 	}
 	if p1.Page != 1 || p1.PageSize != 50 {
