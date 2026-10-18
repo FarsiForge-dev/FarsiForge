@@ -153,7 +153,13 @@ func (r *Registry) scan() {
 	r.Available["die"] = r.DIE != ""
 
 	// Find UnrealLocres
-	r.UnrealLocres = findInDir(r.RootDir, "", "UnrealLocres.exe")
+	r.UnrealLocres = findInDir(r.RootDir, "UnrealLocres", "UnrealLocres.exe")
+	if r.UnrealLocres == "" {
+		r.UnrealLocres = findInDir(r.RootDir, "", "UnrealLocres.exe")
+	}
+	if r.UnrealLocres == "" {
+		r.UnrealLocres = findAdjacentOrPath("UnrealLocres.exe")
+	}
 	r.Available["unreal_locres"] = r.UnrealLocres != ""
 
 	// Find UAssetGUI

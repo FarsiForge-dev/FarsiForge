@@ -1,6 +1,7 @@
 # Build output
 /bin/
 /dist/
+/build/
 *.exe
 *.exe~
 *.dll

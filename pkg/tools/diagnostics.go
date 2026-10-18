@@ -119,7 +119,9 @@ func ProbeTool(ctx context.Context, id, path string) (version string, arch strin
 	case "retoc":
 		args = []string{"--version"}
 	case "fftools":
-		args = []string{"version"}
+		args = []string{"help"}
+	case "unreal_locres":
+		args = []string{"help"}
 	case "gdre_tools":
 		args = []string{"--version"}
 	case "die":
@@ -248,6 +250,31 @@ func InspectTool(ctx context.Context, reg *Registry, id string) ToolDiagnostic {
 		} else {
 			diag.Status = StatusWarning
 			diag.ErrorMessage = "retoc.exe not found (required for UE5 IoStore containers)"
+		}
+
+	case "unreal_locres":
+		diag.Name = "UnrealLocres (.locres CLI)"
+		diag.Category = "Unreal"
+		diag.License = "MIT"
+		diag.Path = reg.UnrealLocres
+		if reg.UnrealLocres != "" && fileExists(reg.UnrealLocres) {
+			diag.Found = true
+			diag.Source = "Bundled Tools"
+			v, arch, testOut, err := ProbeTool(ctx, "unreal_locres", diag.Path)
+			diag.Architecture = arch
+			diag.TestResult = testOut
+			if err == nil {
+				diag.Status = StatusOk
+				if v != "" {
+					diag.Version = v
+				}
+			} else {
+				diag.Status = StatusWarning
+				diag.ErrorMessage = err.Error()
+			}
+		} else {
+			diag.Status = StatusWarning
+			diag.ErrorMessage = "UnrealLocres.exe not found in Tools"
 		}
 
 	case "gdre_tools":
@@ -476,6 +503,7 @@ func GenerateDiagnosticReport(reg *Registry) *DiagnosticReport {
 		"unitypy",
 		"repak",
 		"retoc",
+		"unreal_locres",
 		"gdre_tools",
 		"fftools",
 		"patcher",
